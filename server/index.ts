@@ -12,28 +12,62 @@ const USER_ID = process.env.USER_ID!
 const PORT = Number(process.env.PORT ?? 3001)
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173'
 
+function parseCsv(value: string | undefined): string[] {
+  return (value ?? '').split(',').map(v => v.trim()).filter(Boolean)
+}
+
+function parseTelegramUserMap(value: string | undefined): Map<string, string> {
+  const entries = parseCsv(value)
+  return new Map(entries.flatMap(entry => {
+    const [telegramId, userId] = entry.split(':').map(v => v.trim())
+    return telegramId && userId ? [[telegramId, userId] as const] : []
+  }))
+}
+
+const TELEGRAM_USER_ID_MAP = parseTelegramUserMap(process.env.TELEGRAM_USER_ID_MAP)
+const ALLOWED_USER_IDS = new Set([
+  USER_ID,
+  ...parseCsv(process.env.ALLOWED_USER_IDS),
+  ...TELEGRAM_USER_ID_MAP.values(),
+])
+
+function resolveUserId(c: { req: { header: (k: string) => string | undefined; query: (k: string) => string | undefined } }): string {
+  const telegramUserId = c.req.header('x-telegram-user-id') ?? c.req.query('telegram_user_id')
+  const mappedUserId = telegramUserId ? TELEGRAM_USER_ID_MAP.get(telegramUserId) : undefined
+  if (mappedUserId && ALLOWED_USER_IDS.has(mappedUserId)) return mappedUserId
+
+  const id = c.req.header('x-user-id')
+  return id && ALLOWED_USER_IDS.has(id) ? id : USER_ID
+}
+
 const app = new Hono()
 
-app.use('*', cors({ origin: CORS_ORIGIN }))
+app.use('*', cors({
+  origin: CORS_ORIGIN,
+  allowHeaders: ['Content-Type', 'x-user-id', 'x-telegram-user-id'],
+  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+}))
 
 app.get('/health', (c) => c.json({ ok: true }))
 
 // Recipes
 app.get('/recipes', async (c) => {
+  const uid = resolveUserId(c)
   const { data, error } = await supabase
     .from('recipes')
     .select('*')
-    .eq('user_id', USER_ID)
+    .eq('user_id', uid)
     .order('name')
   if (error) return c.json({ error: error.message }, 500)
   return c.json(data)
 })
 
 app.post('/recipes', async (c) => {
+  const uid = resolveUserId(c)
   const body = await c.req.json()
   const { data, error } = await supabase
     .from('recipes')
-    .insert({ ...body, user_id: USER_ID, updated_at: new Date().toISOString() })
+    .insert({ ...body, user_id: uid, updated_at: new Date().toISOString() })
     .select()
     .single()
   if (error) return c.json({ error: error.message }, 500)
@@ -41,22 +75,24 @@ app.post('/recipes', async (c) => {
 })
 
 app.delete('/recipes/:id', async (c) => {
+  const uid = resolveUserId(c)
   const { error } = await supabase
     .from('recipes')
     .delete()
     .eq('id', c.req.param('id'))
-    .eq('user_id', USER_ID)
+    .eq('user_id', uid)
   if (error) return c.json({ error: error.message }, 500)
   return c.json({ ok: true })
 })
 
 app.patch('/recipes/:id', async (c) => {
+  const uid = resolveUserId(c)
   const body = await c.req.json()
   const { data, error } = await supabase
     .from('recipes')
     .update({ ...body, updated_at: new Date().toISOString() })
     .eq('id', c.req.param('id'))
-    .eq('user_id', USER_ID)
+    .eq('user_id', uid)
     .select()
     .single()
   if (error) return c.json({ error: error.message }, 500)
@@ -64,11 +100,12 @@ app.patch('/recipes/:id', async (c) => {
 })
 
 app.get('/recipes/exists', async (c) => {
+  const uid = resolveUserId(c)
   const name = c.req.query('name') ?? ''
   const { data } = await supabase
     .from('recipes')
     .select('id')
-    .eq('user_id', USER_ID)
+    .eq('user_id', uid)
     .ilike('name', name)
     .single()
   return c.json({ exists: !!data })
@@ -76,7 +113,8 @@ app.get('/recipes/exists', async (c) => {
 
 // Pantry
 app.get('/pantry', async (c) => {
-  let query = supabase.from('pantry').select('*').eq('user_id', USER_ID).order('name')
+  const uid = resolveUserId(c)
+  let query = supabase.from('pantry').select('*').eq('user_id', uid).order('name')
   const category = c.req.query('category')
   if (category) query = query.eq('category', category)
   const { data, error } = await query
@@ -85,10 +123,11 @@ app.get('/pantry', async (c) => {
 })
 
 app.post('/pantry', async (c) => {
+  const uid = resolveUserId(c)
   const body = await c.req.json()
   const { data, error } = await supabase
     .from('pantry')
-    .insert({ ...body, user_id: USER_ID, name: body.name.trim().toLowerCase() })
+    .insert({ ...body, user_id: uid, name: body.name.trim().toLowerCase() })
     .select()
     .single()
   if (error) return c.json({ error: error.message }, 500)
@@ -96,6 +135,7 @@ app.post('/pantry', async (c) => {
 })
 
 app.patch('/pantry/:id', async (c) => {
+  const uid = resolveUserId(c)
   const body = await c.req.json()
   const patch = { ...body }
   if (typeof patch.name === 'string') patch.name = patch.name.trim().toLowerCase()
@@ -104,7 +144,7 @@ app.patch('/pantry/:id', async (c) => {
     .from('pantry')
     .update(patch)
     .eq('id', c.req.param('id'))
-    .eq('user_id', USER_ID)
+    .eq('user_id', uid)
     .select()
     .single()
   if (error) return c.json({ error: error.message }, 500)
@@ -112,11 +152,12 @@ app.patch('/pantry/:id', async (c) => {
 })
 
 app.delete('/pantry/:id', async (c) => {
+  const uid = resolveUserId(c)
   const { error } = await supabase
     .from('pantry')
     .delete()
     .eq('id', c.req.param('id'))
-    .eq('user_id', USER_ID)
+    .eq('user_id', uid)
   if (error) return c.json({ error: error.message }, 500)
   return c.json({ ok: true })
 })
