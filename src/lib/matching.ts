@@ -29,6 +29,9 @@ export const SYNONYMS: Record<string, [string, number][]> = {
   'soybean paste':    [['white miso', 1.0], ['miso paste', 1.0], ['miso', 0.95], ['doenjang', 0.9]],
   'white miso':       [['soybean paste', 1.0], ['miso paste', 1.0], ['miso', 0.95], ['doenjang', 0.9]],
   'miso paste':       [['white miso', 1.0], ['soybean paste', 1.0], ['miso', 1.0], ['doenjang', 0.9]],
+  'black bean sauce': [['black bean paste', 1.0], ['fermented black bean sauce', 1.0], ['ground bean sauce', 0.9], ['black beans', 0.8]],
+  'fermented black bean sauce': [['black bean paste', 1.0], ['black bean sauce', 1.0], ['ground bean sauce', 0.9], ['fermented black beans', 0.8]],
+  'ground bean sauce': [['black bean paste', 0.9], ['black bean sauce', 0.9], ['fermented black bean sauce', 0.9]],
 }
 
 // "gai lan (chinese broccoli)" → ["gai lan", "chinese broccoli"]
