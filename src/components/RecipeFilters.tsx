@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { RecipeStatus } from '../types'
+import type { DishType, RecipeStatus } from '../types'
+import { DISH_TYPE_LABELS } from '../lib/matching'
 
 export interface FilterState {
   status: RecipeStatus | 'all'
@@ -8,6 +9,7 @@ export interface FilterState {
   sourceSort: 'none' | 'asc' | 'desc'
   proteins: Set<string>
   sources: Set<string>
+  dishTypes: Set<DishType>
 }
 
 export const DEFAULT_FILTERS: FilterState = {
@@ -17,6 +19,7 @@ export const DEFAULT_FILTERS: FilterState = {
   sourceSort: 'none',
   proteins: new Set(),
   sources: new Set(),
+  dishTypes: new Set(),
 }
 
 const STATUS_LABELS: Record<RecipeStatus | 'all', string> = {
@@ -48,10 +51,11 @@ interface Props {
   availableCuisines: string[]
   availableProteins: string[]
   availableSources: string[]
+  availableDishTypes: DishType[]
   counts: Record<RecipeStatus | 'all', number>
 }
 
-export default function RecipeFilters({ filters, onChange, availableCuisines, availableProteins, availableSources, counts }: Props) {
+export default function RecipeFilters({ filters, onChange, availableCuisines, availableProteins, availableSources, availableDishTypes, counts }: Props) {
   const [cuisineOpen, setCuisineOpen] = useState(false)
 
   function toggleCuisine(c: string) {
@@ -72,7 +76,13 @@ export default function RecipeFilters({ filters, onChange, availableCuisines, av
     onChange({ ...filters, sources: next })
   }
 
-  const hasFilters = filters.status !== 'all' || filters.cuisines.size > 0 || filters.timeSort !== 'none' || filters.proteins.size > 0 || filters.sources.size > 0
+  function toggleDishType(dishType: DishType) {
+    const next = new Set(filters.dishTypes)
+    next.has(dishType) ? next.delete(dishType) : next.add(dishType)
+    onChange({ ...filters, dishTypes: next })
+  }
+
+  const hasFilters = filters.status !== 'all' || filters.cuisines.size > 0 || filters.timeSort !== 'none' || filters.proteins.size > 0 || filters.sources.size > 0 || filters.dishTypes.size > 0
 
   return (
     <div className="order-1 w-full lg:w-48 shrink-0 space-y-5 lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-104px)] lg:overflow-y-auto pr-0.5">
@@ -126,6 +136,26 @@ export default function RecipeFilters({ filters, onChange, availableCuisines, av
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Dish type filter */}
+      {availableDishTypes.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Dish Type</p>
+          <div className="space-y-1">
+            {availableDishTypes.map(dishType => (
+              <label key={dishType} className="flex items-center gap-2 cursor-pointer px-1">
+                <input
+                  type="checkbox"
+                  checked={filters.dishTypes.has(dishType)}
+                  onChange={() => toggleDishType(dishType)}
+                  className="accent-green-500 shrink-0"
+                />
+                <span className="text-sm text-gray-600">{DISH_TYPE_LABELS[dishType]}</span>
+              </label>
+            ))}
           </div>
         </div>
       )}
@@ -186,7 +216,7 @@ export default function RecipeFilters({ filters, onChange, availableCuisines, av
 
       {hasFilters && (
         <button
-          onClick={() => onChange({ ...DEFAULT_FILTERS, cuisines: new Set(), proteins: new Set(), sources: new Set() })}
+          onClick={() => onChange({ ...DEFAULT_FILTERS, cuisines: new Set(), proteins: new Set(), sources: new Set(), dishTypes: new Set() })}
           className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-1"
         >
           Clear filters

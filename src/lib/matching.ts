@@ -1,4 +1,4 @@
-import type { Recipe, PantryItem, RecipeWithStatus, RecipeStatus, IngredientResult } from '../types'
+import type { DishType, Recipe, PantryItem, RecipeWithStatus, RecipeStatus, IngredientResult } from '../types'
 
 const LIGHT_TRIP_MAX = 3
 
@@ -20,6 +20,9 @@ export const SYNONYMS: Record<string, [string, number][]> = {
   'lime juice':       [['lemon juice', 0.75]],
   'sesame seeds':     [['white sesame seeds', 1.0], ['black sesame seeds', 1.0], ['sesame seed', 1.0]],
   'sesame seed':      [['white sesame seeds', 1.0], ['black sesame seeds', 1.0], ['sesame seeds', 1.0]],
+  'soybean paste':    [['white miso', 1.0], ['miso paste', 1.0], ['miso', 0.95], ['doenjang', 0.9]],
+  'white miso':       [['soybean paste', 1.0], ['miso paste', 1.0], ['miso', 0.95], ['doenjang', 0.9]],
+  'miso paste':       [['white miso', 1.0], ['soybean paste', 1.0], ['miso', 1.0], ['doenjang', 0.9]],
 }
 
 export function findMatch(pantryNames: Set<string>, ingredient: string): IngredientResult {
@@ -68,6 +71,45 @@ export function computeRecipes(
     const status: RecipeStatus = missing === 0 ? 'green' : missing <= LIGHT_TRIP_MAX ? 'yellow' : 'red'
     return { ...recipe, status, ingredientResults }
   })
+}
+
+const DISH_TYPE_LABELS: Record<DishType, string> = {
+  app: 'Apps',
+  main: 'Mains',
+  sauce: 'Sauces',
+  baked: 'Baked goods',
+  soup: 'Soups',
+  rice: 'Rice',
+  noodles: 'Noodles',
+  veggies: 'Veggies',
+}
+
+export { DISH_TYPE_LABELS }
+
+function hasAny(text: string, words: string[]): boolean {
+  return words.some(word => text.includes(word))
+}
+
+export function getDishTypes(recipe: Recipe): DishType[] {
+  const text = [
+    recipe.name,
+    recipe.cuisine ?? '',
+    recipe.tags.join(' '),
+    recipe.ingredients.map(ingredient => ingredient.name).join(' '),
+  ].join(' ').toLowerCase()
+
+  const types = new Set<DishType>()
+  if (hasAny(text, ['appetizer', 'starter', 'snack', 'dip', 'dumpling', 'wontons', 'wonton', 'spring roll'])) types.add('app')
+  if (hasAny(text, ['sauce', 'dressing', 'vinaigrette', 'chutney', 'salsa', 'aioli', 'gravy', 'paste'])) types.add('sauce')
+  if (hasAny(text, ['bread', 'cake', 'cookie', 'cookies', 'biscuit', 'muffin', 'scone', 'tart', 'pie', 'pastry', 'sourdough', 'baked'])) types.add('baked')
+  if (hasAny(text, ['soup', 'stew', 'broth', 'congee', 'porridge', 'chowder'])) types.add('soup')
+  if (hasAny(text, ['rice', 'risotto', 'pilaf', 'fried rice', 'biryani'])) types.add('rice')
+  if (hasAny(text, ['noodle', 'noodles', 'pasta', 'ramen', 'udon', 'soba', 'spaghetti', 'linguine', 'lo mein', 'chow mein'])) types.add('noodles')
+  if (hasAny(text, ['vegetable', 'veggie', 'veggies', 'greens', 'broccoli', 'cabbage', 'bok choy', 'gailan', 'gai lan', 'spinach', 'salad'])) types.add('veggies')
+
+  if (types.size === 0 || !types.has('app')) types.add('main')
+  if (types.has('sauce') && types.size === 2 && types.has('main')) types.delete('main')
+  return [...types]
 }
 
 const PROTEIN_KEYWORDS: Record<string, string[]> = {

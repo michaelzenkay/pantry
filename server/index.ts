@@ -95,6 +95,22 @@ app.post('/pantry', async (c) => {
   return c.json(data, 201)
 })
 
+app.patch('/pantry/:id', async (c) => {
+  const body = await c.req.json()
+  const patch = { ...body }
+  if (typeof patch.name === 'string') patch.name = patch.name.trim().toLowerCase()
+
+  const { data, error } = await supabase
+    .from('pantry')
+    .update(patch)
+    .eq('id', c.req.param('id'))
+    .eq('user_id', USER_ID)
+    .select()
+    .single()
+  if (error) return c.json({ error: error.message }, 500)
+  return c.json(data)
+})
+
 app.delete('/pantry/:id', async (c) => {
   const { error } = await supabase
     .from('pantry')

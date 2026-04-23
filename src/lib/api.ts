@@ -33,6 +33,8 @@ export const api = {
       get<import('../types').PantryItem[]>(`/pantry${category ? `?category=${category}` : ''}`),
     add: (item: Omit<import('../types').PantryItem, 'id'>) =>
       post<import('../types').PantryItem>('/pantry', item),
+    update: (id: string, patch: Partial<import('../types').PantryItem>) =>
+      post<import('../types').PantryItem>(`/pantry/${id}`, patch, 'PATCH'),
     remove: (id: string) => del(`/pantry/${id}`),
   },
 }

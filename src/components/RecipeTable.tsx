@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import type { Recipe, RecipeWithStatus, RecipeStatus, Day, WeekPlan } from '../types'
 import { DAYS, getSource, getSourceUrl } from '../types'
 import type { FilterState } from './RecipeFilters'
-import { getRecipeProteins } from '../lib/matching'
+import { DISH_TYPE_LABELS, getDishTypes, getRecipeProteins } from '../lib/matching'
 
 const STATUS_CONFIG: Record<RecipeStatus, { dot: string; row: string }> = {
   green:  { dot: 'bg-green-500',  row: 'hover:bg-green-50' },
@@ -148,7 +148,7 @@ function DayPicker({ recipeId, weekPlan, onAdd }: { recipeId: string; weekPlan: 
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  const addedDays = DAYS.filter(d => weekPlan[d]?.includes(recipeId))
+  const addedDays = DAYS.filter(d => (weekPlan[d] ?? []).some(entry => entry.recipeId === recipeId))
 
   return (
     <div ref={ref} className="relative" onClick={e => e.stopPropagation()}>
@@ -164,7 +164,7 @@ function DayPicker({ recipeId, weekPlan, onAdd }: { recipeId: string; weekPlan: 
       {open && (
         <div className="absolute right-0 z-30 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 flex gap-1.5 whitespace-nowrap">
           {DAYS.map(day => {
-            const added = weekPlan[day]?.includes(recipeId) ?? false
+            const added = (weekPlan[day] ?? []).some(entry => entry.recipeId === recipeId)
             return (
               <button
                 key={day}
@@ -360,6 +360,10 @@ export default function RecipeTable({
     if (filters.status !== 'all' && r.status !== filters.status) return false
     if (filters.cuisines.size > 0 && (!r.cuisine || !filters.cuisines.has(r.cuisine))) return false
     if (filters.sources.size > 0 && !filters.sources.has(getSource(r.notes))) return false
+    if (filters.dishTypes.size > 0) {
+      const dishTypes = getDishTypes(r)
+      if (!dishTypes.some(dishType => filters.dishTypes.has(dishType))) return false
+    }
     if (filters.proteins.size > 0) {
       const proteins = getRecipeProteins(r)
       if (!proteins.some(p => filters.proteins.has(p))) return false
@@ -506,6 +510,11 @@ export default function RecipeTable({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
                           {recipe.servings && <span>{recipe.servings} serving{recipe.servings === 1 ? '' : 's'}</span>}
+                          {getDishTypes(recipe).map(dishType => (
+                            <span key={dishType} className="px-1.5 py-0.5 rounded bg-white border border-gray-100 text-gray-500">
+                              {DISH_TYPE_LABELS[dishType]}
+                            </span>
+                          ))}
                           {formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes) !== 'â€”' && (
                             <span>{formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes)}</span>
                           )}

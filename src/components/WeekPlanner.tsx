@@ -12,8 +12,8 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
 
   const shoppingMap = new Map<string, number>()
   for (const day of DAYS) {
-    for (const id of weekPlan[day] ?? []) {
-      const recipe = recipeMap[id]
+    for (const entry of weekPlan[day] ?? []) {
+      const recipe = recipeMap[entry.recipeId]
       if (!recipe) continue
       for (const ir of recipe.ingredientResults) {
         if (ir.status === 'missing') {
@@ -30,20 +30,20 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
       <div className="overflow-x-auto pb-2">
         <div className="grid grid-cols-7 gap-2" style={{ minWidth: '700px' }}>
           {DAYS.map(day => {
-            const ids = weekPlan[day] ?? []
+            const entries = weekPlan[day] ?? []
             return (
               <div key={day} className="space-y-2">
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-center pb-1 border-b border-gray-100">
                   {day}
                 </h3>
                 <div className="min-h-28 space-y-1.5">
-                  {ids.map(id => {
-                    const recipe = recipeMap[id]
+                  {entries.map(entry => {
+                    const recipe = recipeMap[entry.recipeId]
                     if (!recipe) return null
                     const missingCount = recipe.ingredientResults.filter(r => r.status === 'missing').length
                     return (
                       <div
-                        key={id}
+                        key={entry.recipeId}
                         className={`bg-white rounded-lg border p-2 relative group ${
                           missingCount === 0 ? 'border-green-200' : 'border-orange-200'
                         }`}
@@ -55,7 +55,7 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                           <p className="text-xs text-orange-500 mt-0.5">{missingCount} missing</p>
                         )}
                         <button
-                          onClick={() => onRemove(id, day)}
+                          onClick={() => onRemove(entry.recipeId, day)}
                           className="absolute top-1 right-1.5 text-gray-300 hover:text-red-400 font-medium text-sm leading-none"
                         >
                           ×
@@ -63,7 +63,7 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                       </div>
                     )
                   })}
-                  {ids.length === 0 && (
+                  {entries.length === 0 && (
                     <p className="text-xs text-gray-200 text-center pt-6">—</p>
                   )}
                 </div>

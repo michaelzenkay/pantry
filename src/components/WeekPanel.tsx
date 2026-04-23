@@ -15,8 +15,8 @@ export default function WeekPanel({ computed, weekPlan, onRemove }: Props) {
 
   const shoppingMap = new Map<string, number>()
   for (const day of DAYS) {
-    for (const id of weekPlan[day] ?? []) {
-      const recipe = recipeMap[id]
+    for (const entry of weekPlan[day] ?? []) {
+      const recipe = recipeMap[entry.recipeId]
       if (!recipe) continue
       for (const ir of recipe.ingredientResults) {
         if (ir.status === 'missing') {
@@ -96,20 +96,20 @@ export default function WeekPanel({ computed, weekPlan, onRemove }: Props) {
       <div className="flex-1 lg:overflow-y-auto space-y-1 pr-0.5">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">This Week</p>
         {DAYS.map(day => {
-          const ids = weekPlan[day] ?? []
+          const entries = weekPlan[day] ?? []
           return (
             <div key={day} className="space-y-1">
               <p className="text-xs font-semibold text-gray-500">{day}</p>
-              {ids.length === 0 ? (
+              {entries.length === 0 ? (
                 <div className="h-6 rounded border border-dashed border-gray-200" />
               ) : (
-                ids.map(id => {
-                  const recipe = recipeMap[id]
+                entries.map(entry => {
+                  const recipe = recipeMap[entry.recipeId]
                   if (!recipe) return null
                   const missing = recipe.ingredientResults.filter(r => r.status === 'missing').length
                   return (
                     <div
-                      key={id}
+                      key={entry.recipeId}
                       onClick={() => setSelectedRecipe(recipe)}
                       role="button"
                       tabIndex={0}
@@ -122,7 +122,7 @@ export default function WeekPanel({ computed, weekPlan, onRemove }: Props) {
                     >
                       <span className="flex-1 leading-snug text-gray-700 line-clamp-2 min-w-0">{recipe.name}</span>
                       <button
-                        onClick={(e) => { e.stopPropagation(); onRemove(id, day) }}
+                        onClick={(e) => { e.stopPropagation(); onRemove(entry.recipeId, day) }}
                         className="text-gray-300 hover:text-red-400 shrink-0 leading-none mt-0.5 font-medium"
                       >
                         ×

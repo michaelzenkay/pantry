@@ -34,7 +34,7 @@ export interface IngredientResult {
   name: string
   status: 'exact' | 'substitute' | 'missing'
   substituteWith?: string  // what's in the pantry that covers it
-  similarity?: number      // 0–1
+  similarity?: number      // 0-1
 }
 
 export interface RecipeWithStatus extends Recipe {
@@ -62,4 +62,28 @@ export function getSourceUrl(notes: string | null): string {
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 export type Day = typeof DAYS[number]
-export type WeekPlan = Partial<Record<Day, string[]>>
+export const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'] as const
+export type MealSlot = typeof MEAL_SLOTS[number]
+export const COURSE_SLOTS = ['app', 'main'] as const
+export type CourseSlot = typeof COURSE_SLOTS[number]
+
+export type DishType = 'app' | 'main' | 'sauce' | 'baked' | 'soup' | 'rice' | 'noodles' | 'veggies'
+
+export interface PlannedRecipe {
+  recipeId: string
+  meal: MealSlot
+  course: CourseSlot
+}
+
+export type WeekPlan = Partial<Record<Day, PlannedRecipe[]>>
+
+export interface MadeHistoryEntry {
+  id: string
+  recipeId: string
+  recipeName: string
+  day: Day
+  meal: MealSlot
+  course: CourseSlot
+  madeAt: string
+  rating: number | null
+}

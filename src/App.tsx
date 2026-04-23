@@ -3,17 +3,18 @@ import { api } from './lib/api'
 import RecipeTable from './components/RecipeTable'
 import RecipeFilters, { DEFAULT_FILTERS } from './components/RecipeFilters'
 import PantryPanel from './components/PantryPanel'
-import WeekPanel from './components/WeekPanel'
-import type { Recipe, PantryItem, Day, WeekPlan, RecipeWithStatus } from './types'
+import CalendarPanel from './components/CalendarPanel'
+import type { DishType, MadeHistoryEntry, PlannedRecipe, Recipe, PantryItem, Day, WeekPlan, RecipeWithStatus } from './types'
 import { DAYS, getSource } from './types'
-import { computeRecipes, getRecipeProteins } from './lib/matching'
+import { computeRecipes, getDishTypes, getRecipeProteins } from './lib/matching'
 import type { FilterState } from './components/RecipeFilters'
 
-type Tab = 'recipes' | 'pantry'
+type Tab = 'recipes' | 'calendar' | 'pantry'
 
 const WEEK_PLAN_KEY = 'pantry_week_plan'
 const OVERRIDES_KEY = 'pantry_overrides'
 const PLANNED_KEY   = 'pantry_planned'
+const HISTORY_KEY   = 'pantry_made_history'
 
 function loadSet(key: string): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(key) ?? '[]')) } catch { return new Set() }
@@ -22,10 +23,38 @@ function saveSet(key: string, s: Set<string>) {
   localStorage.setItem(key, JSON.stringify([...s]))
 }
 function loadWeekPlan(): WeekPlan {
-  try { return JSON.parse(localStorage.getItem(WEEK_PLAN_KEY) ?? '{}') } catch { return {} }
+  try {
+    const raw = JSON.parse(localStorage.getItem(WEEK_PLAN_KEY) ?? '{}') as Record<string, unknown>
+    const next: WeekPlan = {}
+    for (const day of DAYS) {
+      const value = raw[day]
+      if (!Array.isArray(value)) continue
+      next[day] = value
+        .map((entry): PlannedRecipe | null => {
+          if (typeof entry === 'string') return { recipeId: entry, meal: 'dinner', course: 'main' }
+          if (entry && typeof entry === 'object' && 'recipeId' in entry) {
+            const candidate = entry as Partial<PlannedRecipe>
+            return {
+              recipeId: String(candidate.recipeId),
+              meal: candidate.meal ?? 'dinner',
+              course: candidate.course ?? 'main',
+            }
+          }
+          return null
+        })
+        .filter((entry): entry is PlannedRecipe => !!entry)
+    }
+    return next
+  } catch { return {} }
 }
 function saveWeekPlan(plan: WeekPlan) {
   localStorage.setItem(WEEK_PLAN_KEY, JSON.stringify(plan))
+}
+function loadHistory(): MadeHistoryEntry[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
+}
+function saveHistory(history: MadeHistoryEntry[]) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
 }
 
 export default function App() {
@@ -34,10 +63,11 @@ export default function App() {
   const [pantry, setPantry]   = useState<PantryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [filters, setFilters] = useState<FilterState>(() => ({ ...DEFAULT_FILTERS, cuisines: new Set(), proteins: new Set(), sources: new Set() }))
+  const [filters, setFilters] = useState<FilterState>(() => ({ ...DEFAULT_FILTERS, cuisines: new Set(), proteins: new Set(), sources: new Set(), dishTypes: new Set() }))
   const [weekPlan, setWeekPlan]   = useState<WeekPlan>(loadWeekPlan)
   const [overrides, setOverrides] = useState<Set<string>>(() => loadSet(OVERRIDES_KEY))
   const [planned, setPlanned]     = useState<Set<string>>(() => loadSet(PLANNED_KEY))
+  const [history, setHistory]     = useState<MadeHistoryEntry[]>(loadHistory)
 
   useEffect(() => {
     Promise.all([api.recipes.list(), api.pantry.list()])
@@ -113,6 +143,11 @@ export default function App() {
     () => [...new Set(recipes.map(r => getSource(r.notes)).filter(Boolean))].sort(),
     [recipes]
   )
+  const availableDishTypes = useMemo(() => {
+    const all = new Set<DishType>()
+    computed.forEach(recipe => getDishTypes(recipe).forEach(dishType => all.add(dishType)))
+    return [...all].sort()
+  }, [computed])
 
   const statusCounts = useMemo(() => ({
     all:    computed.length,
@@ -124,19 +159,73 @@ export default function App() {
   function addToWeek(recipeId: string, day: Day) {
     setWeekPlan(prev => {
       const dayList = prev[day] ?? []
-      const next = dayList.includes(recipeId)
-        ? { ...prev, [day]: dayList.filter(id => id !== recipeId) }
-        : { ...prev, [day]: [...dayList, recipeId] }
+      const next = dayList.some(entry => entry.recipeId === recipeId)
+        ? { ...prev, [day]: dayList.filter(entry => entry.recipeId !== recipeId) }
+        : { ...prev, [day]: [...dayList, { recipeId, meal: 'dinner', course: 'main' } satisfies PlannedRecipe] }
       saveWeekPlan(next)
       return next
     })
   }
   function removeFromWeek(recipeId: string, day: Day) {
     setWeekPlan(prev => {
-      const next = { ...prev, [day]: (prev[day] ?? []).filter(id => id !== recipeId) }
+      const next = { ...prev, [day]: (prev[day] ?? []).filter(entry => entry.recipeId !== recipeId) }
       saveWeekPlan(next)
       return next
     })
+  }
+
+  function moveInWeek(recipeId: string, fromDay: Day, toDay: Day) {
+    if (fromDay === toDay) return
+    setWeekPlan(prev => {
+      const moving = (prev[fromDay] ?? []).find(entry => entry.recipeId === recipeId)
+      if (!moving) return prev
+      const fromList = (prev[fromDay] ?? []).filter(entry => entry.recipeId !== recipeId)
+      const toList = prev[toDay] ?? []
+      const next = {
+        ...prev,
+        [fromDay]: fromList,
+        [toDay]: toList.some(entry => entry.recipeId === recipeId) ? toList : [...toList, moving],
+      }
+      saveWeekPlan(next)
+      return next
+    })
+  }
+
+  function updateWeekSlot(recipeId: string, day: Day, patch: Partial<Pick<PlannedRecipe, 'meal' | 'course'>>) {
+    setWeekPlan(prev => {
+      const next = {
+        ...prev,
+        [day]: (prev[day] ?? []).map(entry => entry.recipeId === recipeId ? { ...entry, ...patch } : entry),
+      }
+      saveWeekPlan(next)
+      return next
+    })
+  }
+
+  async function markMade(recipe: RecipeWithStatus, day: Day, rating: number | null) {
+    if (rating !== null) await updateRecipe(recipe.id, { rating })
+    const plannedEntry = (weekPlan[day] ?? []).find(entry => entry.recipeId === recipe.id)
+    const entry: MadeHistoryEntry = {
+      id: `${Date.now()}-${recipe.id}`,
+      recipeId: recipe.id,
+      recipeName: recipe.name,
+      day,
+      meal: plannedEntry?.meal ?? 'dinner',
+      course: plannedEntry?.course ?? 'main',
+      madeAt: new Date().toISOString(),
+      rating,
+    }
+    setHistory(prev => {
+      const next = [entry, ...prev].slice(0, 100)
+      saveHistory(next)
+      return next
+    })
+    removeFromWeek(recipe.id, day)
+  }
+
+  function clearHistory() {
+    setHistory([])
+    saveHistory([])
   }
 
   async function updateRecipe(recipeId: string, patch: Partial<Recipe>) {
@@ -149,7 +238,7 @@ export default function App() {
     setRecipes(prev => prev.filter(recipe => recipe.id !== recipeId))
     setWeekPlan(prev => {
       const next = Object.fromEntries(
-        DAYS.map(day => [day, (prev[day] ?? []).filter(id => id !== recipeId)])
+        DAYS.map(day => [day, (prev[day] ?? []).filter(entry => entry.recipeId !== recipeId)])
       ) as WeekPlan
       saveWeekPlan(next)
       return next
@@ -164,7 +253,7 @@ export default function App() {
         <div className="max-w-screen-xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-semibold text-gray-900">Pantry</h1>
           <nav className="flex gap-1">
-            {(['recipes', 'pantry'] as Tab[]).map(t => (
+            {(['recipes', 'calendar', 'pantry'] as Tab[]).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -173,6 +262,9 @@ export default function App() {
                 }`}
               >
                 {t}
+                {t === 'calendar' && weekCount > 0 && (
+                  <span className="ml-1.5 text-xs opacity-70">{weekCount}</span>
+                )}
                 {t === 'pantry' && !loading && (
                   <span className="ml-1.5 text-xs opacity-70">{pantry.length}</span>
                 )}
@@ -203,6 +295,7 @@ export default function App() {
               availableCuisines={availableCuisines}
               availableProteins={availableProteins}
               availableSources={availableSources}
+              availableDishTypes={availableDishTypes}
               counts={statusCounts}
             />
             <div className="order-3 lg:order-2 flex-1 min-w-0 w-full">
@@ -221,16 +314,19 @@ export default function App() {
                 onDeleteRecipe={deleteRecipe}
               />
             </div>
-            {weekCount > 0 && (
-              <div className="order-2 lg:order-3 w-full lg:w-auto">
-                <WeekPanel
-                  computed={computed}
-                  weekPlan={weekPlan}
-                  onRemove={removeFromWeek}
-                />
-              </div>
-            )}
           </div>
+        ) : tab === 'calendar' ? (
+          <CalendarPanel
+            computed={computed}
+            pantry={pantry}
+            weekPlan={weekPlan}
+            history={history}
+            onMove={moveInWeek}
+            onUpdateSlot={updateWeekSlot}
+            onRemove={removeFromWeek}
+            onMarkMade={markMade}
+            onClearHistory={clearHistory}
+          />
         ) : (
           <div className="max-w-3xl">
             <PantryPanel pantry={pantry} onUpdate={setPantry} />
