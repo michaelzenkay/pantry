@@ -42,16 +42,52 @@ export interface RecipeWithStatus extends Recipe {
   ingredientResults: IngredientResult[]
 }
 
+function toTitleCase(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+function formatSourceHost(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/^www\./, '')
+  const root = host.split('.').slice(0, -1).join('.') || host
+
+  const known: Record<string, string> = {
+    madewithlau: 'Lau',
+    doobydobap: 'Dooby',
+    lifebymikeg: 'Mike G',
+    seriouseats: 'Kenji',
+    tastelife: 'Taste Life',
+    thewoksoflife: 'Woks of Life',
+    omnivorescookbook: 'Omnivore',
+    allrecipes: 'Allrecipes',
+  }
+
+  if (known[root]) return known[root]
+
+  const cleaned = root
+    .replace(/\./g, ' ')
+    .replace(/-/g, ' ')
+    .replace(/_/g, ' ')
+    .trim()
+
+  return toTitleCase(cleaned)
+}
+
 export function getSource(notes: string | null): string {
   if (!notes) return ''
   const m = notes.match(/Source:\s*(\S+)/)
   if (!m) return ''
-  const d = m[1].toLowerCase()
-  if (d.includes('madewithlau')) return 'Lau'
-  if (d.includes('doobydobap'))  return 'Dooby'
-  if (d.includes('lifebymikeg')) return 'Mike G'
-  if (d.includes('seriouseats')) return 'Kenji'
-  return d
+  const source = m[1].trim()
+
+  try {
+    const url = new URL(source)
+    return formatSourceHost(url.hostname)
+  } catch {
+    return toTitleCase(source.replace(/[_-]+/g, ' '))
+  }
 }
 
 export function getSourceUrl(notes: string | null): string {

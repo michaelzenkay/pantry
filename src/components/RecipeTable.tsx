@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { Fragment, useState, useRef, useEffect } from 'react'
 import type { Recipe, RecipeWithStatus, RecipeStatus, Day, WeekPlan } from '../types'
 import { DAYS, formatRecipeCuisine, getRecipeCuisines, getSource, getSourceUrl } from '../types'
 import type { FilterState } from './RecipeFilters'
@@ -20,6 +20,29 @@ function formatTime(prep: number | null, cook: number | null): string {
 
 function formatIngredientAmount(ingredient: Recipe['ingredients'][number]): string {
   return [ingredient.quantity, ingredient.unit].filter(Boolean).join(' ').trim()
+}
+
+function getMissingCount(recipe: RecipeWithStatus): number {
+  return recipe.ingredientResults.filter(result => result.status === 'missing').length
+}
+
+function matchesSearchQuery(recipe: RecipeWithStatus, query: string): boolean {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized) return true
+
+  const haystack = [
+    recipe.name,
+    formatRecipeCuisine(recipe.name, recipe.cuisine),
+    getSource(recipe.notes),
+    getSourceUrl(recipe.notes),
+    recipe.tags.join(' '),
+    recipe.ingredients.map(ingredient => ingredient.name).join(' '),
+    recipe.notes ?? '',
+  ]
+    .join(' ')
+    .toLowerCase()
+
+  return normalized.split(/\s+/).every(term => haystack.includes(term))
 }
 
 // ─── Ingredient chip with popover ────────────────────────────────────────────
@@ -358,6 +381,8 @@ export default function RecipeTable({
 
   let filtered = computed.filter(r => {
     if (filters.status !== 'all' && r.status !== filters.status) return false
+    if (!matchesSearchQuery(r, filters.query)) return false
+    if (filters.missingMax !== null && getMissingCount(r) > filters.missingMax) return false
     if (filters.cuisines.size > 0) {
       const cuisines = getRecipeCuisines(r.name, r.cuisine)
       if (!cuisines.some(cuisine => filters.cuisines.has(cuisine))) return false
@@ -378,6 +403,16 @@ export default function RecipeTable({
     filtered = [...filtered].sort((a, b) => ((a.prep_time_minutes ?? 0) + (a.cook_time_minutes ?? 0)) - ((b.prep_time_minutes ?? 0) + (b.cook_time_minutes ?? 0)))
   } else if (filters.timeSort === 'desc') {
     filtered = [...filtered].sort((a, b) => ((b.prep_time_minutes ?? 0) + (b.cook_time_minutes ?? 0)) - ((a.prep_time_minutes ?? 0) + (a.cook_time_minutes ?? 0)))
+  } else if (filters.status === 'yellow') {
+    filtered = [...filtered].sort((a, b) => {
+      const missingDiff = getMissingCount(a) - getMissingCount(b)
+      if (missingDiff !== 0) return missingDiff
+
+      const timeDiff = ((a.prep_time_minutes ?? 0) + (a.cook_time_minutes ?? 0)) - ((b.prep_time_minutes ?? 0) + (b.cook_time_minutes ?? 0))
+      if (timeDiff !== 0) return timeDiff
+
+      return a.name.localeCompare(b.name)
+    })
   } else {
     filtered = [...filtered].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
   }
@@ -422,11 +457,11 @@ export default function RecipeTable({
           <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
             <th className="text-left px-4 py-3 w-5"></th>
             <th className="text-left px-4 py-3">Recipe</th>
-            <th className="text-left px-4 py-3 hidden sm:table-cell">Src</th>
             <th className="text-left px-4 py-3 hidden lg:table-cell">Cuisine</th>
             <th className="text-left px-4 py-3 hidden md:table-cell">Time</th>
             <th className="text-left px-4 py-3">Missing</th>
             <th className="text-left px-4 py-3 w-10"></th>
+            <th className="text-left px-4 py-3 hidden md:table-cell w-28">Src</th>
           </tr>
         </thead>
         <tbody>
@@ -436,11 +471,11 @@ export default function RecipeTable({
             const missingItems = recipe.ingredientResults.filter(r => r.status === 'missing')
             const subItems = recipe.ingredientResults.filter(r => r.status === 'substitute')
             const sourceUrl = getSourceUrl(recipe.notes)
+            const sourceLabel = getSource(recipe.notes)
 
             return (
-              <>
+              <Fragment key={recipe.id}>
                 <tr
-                  key={recipe.id}
                   onClick={() => setExpanded(isExpanded ? null : recipe.id)}
                   className={`border-b border-gray-50 cursor-pointer transition-colors ${cfg.row} ${isExpanded ? 'bg-gray-50' : ''}`}
                 >
@@ -449,25 +484,6 @@ export default function RecipeTable({
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px]">
                     <span className="line-clamp-2 leading-snug">{recipe.name}</span>
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    {getSource(recipe.notes) && (
-                      sourceUrl ? (
-                        <a
-                          href={sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={e => e.stopPropagation()}
-                          className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-500 font-medium whitespace-nowrap hover:bg-gray-200 hover:text-gray-700"
-                        >
-                          {getSource(recipe.notes)}
-                        </a>
-                      ) : (
-                      <span className="px-1.5 py-0.5 bg-gray-100 rounded text-xs text-gray-500 font-medium whitespace-nowrap">
-                        {getSource(recipe.notes)}
-                      </span>
-                      )
-                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-500 hidden lg:table-cell text-xs">{formatRecipeCuisine(recipe.name, recipe.cuisine)}</td>
                   <td className="px-4 py-3 text-gray-500 hidden md:table-cell text-xs">
@@ -508,9 +524,29 @@ export default function RecipeTable({
                   <td className="px-3 py-3">
                     <DayPicker recipeId={recipe.id} weekPlan={weekPlan} onAdd={day => onAddToWeek(recipe.id, day)} />
                   </td>
+                  <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-500">
+                    {sourceLabel && (
+                      sourceUrl ? (
+                        <a
+                          href={sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="inline-block max-w-[7rem] truncate text-green-700 hover:text-green-800 hover:underline underline-offset-2 align-bottom"
+                          title={sourceLabel}
+                        >
+                          {sourceLabel}
+                        </a>
+                      ) : (
+                        <span className="inline-block max-w-[7rem] truncate" title={sourceLabel}>
+                          {sourceLabel}
+                        </span>
+                      )
+                    )}
+                  </td>
                 </tr>
                 {isExpanded && (
-                  <tr key={`${recipe.id}-exp`} className="bg-gray-50 border-b border-gray-100">
+                  <tr className="bg-gray-50 border-b border-gray-100">
                     <td colSpan={7} className="px-4 py-3 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
@@ -631,7 +667,7 @@ export default function RecipeTable({
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             )
           })}
         </tbody>

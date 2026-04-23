@@ -4,6 +4,8 @@ import { DISH_TYPE_LABELS } from '../lib/matching'
 
 export interface FilterState {
   status: RecipeStatus | 'all'
+  query: string
+  missingMax: number | null
   cuisines: Set<string>
   timeSort: 'none' | 'asc' | 'desc'
   sourceSort: 'none' | 'asc' | 'desc'
@@ -14,6 +16,8 @@ export interface FilterState {
 
 export const DEFAULT_FILTERS: FilterState = {
   status: 'all',
+  query: '',
+  missingMax: null,
   cuisines: new Set(),
   timeSort: 'none',
   sourceSort: 'none',
@@ -48,6 +52,7 @@ const PROTEIN_LABELS: Record<string, string> = {
 interface Props {
   filters: FilterState
   onChange: (f: FilterState) => void
+  maxMissingCount: number
   availableCuisines: string[]
   availableProteins: string[]
   availableSources: string[]
@@ -55,7 +60,7 @@ interface Props {
   counts: Record<RecipeStatus | 'all', number>
 }
 
-export default function RecipeFilters({ filters, onChange, availableCuisines, availableProteins, availableSources, availableDishTypes, counts }: Props) {
+export default function RecipeFilters({ filters, onChange, maxMissingCount, availableCuisines, availableProteins, availableSources, availableDishTypes, counts }: Props) {
   const [cuisineOpen, setCuisineOpen] = useState(false)
 
   function toggleCuisine(c: string) {
@@ -82,7 +87,8 @@ export default function RecipeFilters({ filters, onChange, availableCuisines, av
     onChange({ ...filters, dishTypes: next })
   }
 
-  const hasFilters = filters.status !== 'all' || filters.cuisines.size > 0 || filters.timeSort !== 'none' || filters.proteins.size > 0 || filters.sources.size > 0 || filters.dishTypes.size > 0
+  const activeMissingMax = Math.min(filters.missingMax ?? maxMissingCount, maxMissingCount)
+  const hasFilters = filters.status !== 'all' || filters.query.trim().length > 0 || activeMissingMax < maxMissingCount || filters.cuisines.size > 0 || filters.timeSort !== 'none' || filters.proteins.size > 0 || filters.sources.size > 0 || filters.dishTypes.size > 0
 
   return (
     <div className="order-1 w-full lg:w-48 shrink-0 space-y-5 lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-104px)] lg:overflow-y-auto pr-0.5">
@@ -173,6 +179,36 @@ export default function RecipeFilters({ filters, onChange, availableCuisines, av
           <option value="desc">Slowest first</option>
         </select>
       </div>
+
+      {maxMissingCount > 0 && (
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Missing Filter</p>
+            <button
+              onClick={() => onChange({ ...filters, missingMax: null })}
+              className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              All
+            </button>
+          </div>
+          <div className="px-1">
+            <input
+              type="range"
+              min={0}
+              max={maxMissingCount}
+              step={1}
+              value={activeMissingMax}
+              onChange={e => onChange({ ...filters, missingMax: Number(e.target.value) })}
+              className="w-full accent-green-500"
+            />
+            <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
+              <span>Less missing</span>
+              <span>{activeMissingMax} max</span>
+              <span>More missing</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Protein filter */}
       {availableProteins.length > 0 && (

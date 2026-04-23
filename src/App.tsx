@@ -149,6 +149,10 @@ export default function App() {
     computed.forEach(recipe => getDishTypes(recipe).forEach(dishType => all.add(dishType)))
     return [...all].sort()
   }, [computed])
+  const maxMissingCount = useMemo(
+    () => computed.reduce((max, recipe) => Math.max(max, recipe.ingredientResults.filter(result => result.status === 'missing').length), 0),
+    [computed]
+  )
 
   const statusCounts = useMemo(() => ({
     all:    computed.length,
@@ -268,10 +272,22 @@ export default function App() {
                 <WeekPlanner computed={computed} weekPlan={weekPlan} onRemove={removeFromWeek} />
               </div>
             )}
+            <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+              <label className="block">
+                <span className="sr-only">Search recipes</span>
+                <input
+                  value={filters.query}
+                  onChange={e => setFilters(prev => ({ ...prev, query: e.target.value }))}
+                  placeholder="Search recipes, ingredients, tags, cuisine, or source..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400"
+                />
+              </label>
+            </div>
             <div className="flex flex-col lg:flex-row gap-6 items-start">
               <RecipeFilters
                 filters={filters}
                 onChange={setFilters}
+                maxMissingCount={maxMissingCount}
                 availableCuisines={availableCuisines}
                 availableProteins={availableProteins}
                 availableSources={availableSources}
