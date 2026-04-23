@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Recipe, RecipeWithStatus, RecipeStatus, Day, WeekPlan } from '../types'
-import { DAYS, getSource, getSourceUrl } from '../types'
+import { DAYS, formatRecipeCuisine, getRecipeCuisines, getSource, getSourceUrl } from '../types'
 import type { FilterState } from './RecipeFilters'
 import { DISH_TYPE_LABELS, getDishTypes, getRecipeProteins } from '../lib/matching'
 
@@ -358,7 +358,10 @@ export default function RecipeTable({
 
   let filtered = computed.filter(r => {
     if (filters.status !== 'all' && r.status !== filters.status) return false
-    if (filters.cuisines.size > 0 && (!r.cuisine || !filters.cuisines.has(r.cuisine))) return false
+    if (filters.cuisines.size > 0) {
+      const cuisines = getRecipeCuisines(r.name, r.cuisine)
+      if (!cuisines.some(cuisine => filters.cuisines.has(cuisine))) return false
+    }
     if (filters.sources.size > 0 && !filters.sources.has(getSource(r.notes))) return false
     if (filters.dishTypes.size > 0) {
       const dishTypes = getDishTypes(r)
@@ -466,7 +469,7 @@ export default function RecipeTable({
                       )
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-500 hidden lg:table-cell text-xs">{recipe.cuisine ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 hidden lg:table-cell text-xs">{formatRecipeCuisine(recipe.name, recipe.cuisine)}</td>
                   <td className="px-4 py-3 text-gray-500 hidden md:table-cell text-xs">
                     {formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes)}
                   </td>

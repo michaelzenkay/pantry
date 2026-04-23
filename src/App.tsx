@@ -6,7 +6,7 @@ import PantryPanel from './components/PantryPanel'
 import CalendarPanel from './components/CalendarPanel'
 import WeekPlanner from './components/WeekPlanner'
 import type { DishType, MadeHistoryEntry, PlannedRecipe, Recipe, PantryItem, Day, WeekPlan, RecipeWithStatus } from './types'
-import { DAYS, getSource } from './types'
+import { DAYS, getRecipeCuisines, getSource } from './types'
 import { computeRecipes, getDishTypes, getRecipeProteins } from './lib/matching'
 import type { FilterState } from './components/RecipeFilters'
 
@@ -132,7 +132,7 @@ export default function App() {
   }
 
   const availableCuisines = useMemo(
-    () => [...new Set(recipes.map(r => r.cuisine).filter(Boolean) as string[])].sort(),
+    () => [...new Set(recipes.flatMap(r => getRecipeCuisines(r.name, r.cuisine)))].sort(),
     [recipes]
   )
   const availableProteins = useMemo(() => {

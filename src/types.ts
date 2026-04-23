@@ -60,6 +60,38 @@ export function getSourceUrl(notes: string | null): string {
   return m?.[1] ?? ''
 }
 
+export function getRecipeCuisines(name: string, cuisine: string | null): string[] {
+  if (name.toLowerCase().includes('miso mashed potatoes')) return ['Korean', 'Japanese']
+  if (!cuisine) return []
+
+  const seen = new Set<string>()
+  return cuisine
+    .split(/[\/,&+]|(?:\s+and\s+)/i)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const lower = part.toLowerCase()
+      if (lower === 'fusion') return ''
+      if (lower === 'baking') return 'Baking'
+      return part
+        .split(/\s+/)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
+    })
+    .filter(Boolean)
+    .filter(part => {
+      const key = part.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+export function formatRecipeCuisine(name: string, cuisine: string | null): string {
+  const cuisines = getRecipeCuisines(name, cuisine)
+  return cuisines.length > 0 ? cuisines.join(' / ') : '—'
+}
+
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 export type Day = typeof DAYS[number]
 export const MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'] as const
