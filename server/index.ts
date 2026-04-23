@@ -16,6 +16,8 @@ const app = new Hono()
 
 app.use('*', cors({ origin: CORS_ORIGIN }))
 
+app.get('/health', (c) => c.json({ ok: true }))
+
 // Recipes
 app.get('/recipes', async (c) => {
   const { data, error } = await supabase

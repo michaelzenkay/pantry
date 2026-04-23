@@ -33,17 +33,23 @@ export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [pantry, setPantry]   = useState<PantryItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>(() => ({ ...DEFAULT_FILTERS, cuisines: new Set(), proteins: new Set(), sources: new Set() }))
   const [weekPlan, setWeekPlan]   = useState<WeekPlan>(loadWeekPlan)
   const [overrides, setOverrides] = useState<Set<string>>(() => loadSet(OVERRIDES_KEY))
   const [planned, setPlanned]     = useState<Set<string>>(() => loadSet(PLANNED_KEY))
 
   useEffect(() => {
-    Promise.all([api.recipes.list(), api.pantry.list()]).then(([r, p]) => {
-      setRecipes(r)
-      setPantry(p)
-      setLoading(false)
-    })
+    Promise.all([api.recipes.list(), api.pantry.list()])
+      .then(([r, p]) => {
+        setRecipes(r)
+        setPantry(p)
+        setLoadError(null)
+      })
+      .catch((err: unknown) => {
+        setLoadError(err instanceof Error ? err.message : 'Unable to load pantry data.')
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   const allOverrides = useMemo(() => new Set([...overrides, ...planned]), [overrides, planned])
@@ -180,6 +186,14 @@ export default function App() {
         {loading ? (
           <div className="flex items-center justify-center mt-16 text-gray-400 text-sm gap-2">
             <span className="animate-spin inline-block">⟳</span> Loading...
+          </div>
+        ) : loadError ? (
+          <div className="max-w-xl mx-auto mt-16 bg-white border border-red-100 rounded-xl p-5">
+            <h2 className="text-sm font-semibold text-red-700">Could not reach the pantry API</h2>
+            <p className="text-sm text-gray-600 mt-2">{loadError}</p>
+            <p className="text-xs text-gray-400 mt-3">
+              Frontend API URL: {import.meta.env.VITE_API_URL ?? 'http://localhost:3001'}
+            </p>
           </div>
         ) : tab === 'recipes' ? (
           <div className="flex flex-col lg:flex-row gap-6 items-start">
