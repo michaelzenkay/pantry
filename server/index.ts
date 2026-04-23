@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { createClient } from '@supabase/supabase-js'
+import { mountBot } from './bot.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -184,6 +185,11 @@ app.delete('/pantry/:id', async (c) => {
   if (error) return c.json({ error: error.message }, 500)
   return c.json({ ok: true })
 })
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  mountBot(app, supabase, TELEGRAM_USER_ID_MAP)
+  console.log('Telegram bot webhook mounted at /telegram/webhook')
+}
 
 serve({ fetch: app.fetch, port: PORT }, () =>
   console.log(`API server running on http://localhost:${PORT}`),
