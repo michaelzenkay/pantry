@@ -4,6 +4,7 @@ const LIGHT_TRIP_MAX = 3
 
 const ALWAYS_AVAILABLE = ['water', 'warm water', 'cold water', 'ice water', 'boiling water',
   'salt', 'black pepper', 'white pepper', 'pepper']
+const WATER_WORDS = new Set(['water', 'warm', 'hot', 'cold', 'ice', 'iced', 'boiling'])
 
 // Compound substitutions: ALL listed ingredients together substitute for the key
 export const COMPOUND_SUBS: Record<string, { ingredients: string[]; similarity: number }[]> = {
@@ -90,12 +91,12 @@ function expandTerms(name: string): string[] {
 
 export function findMatch(pantryNames: Set<string>, ingredient: string): IngredientResult {
   const ing = ingredient.toLowerCase()
+  const ingTerms = expandTerms(ingredient)
 
   if (ALWAYS_AVAILABLE.includes(ing)) return { name: ingredient, status: 'exact' }
-  if (ing.startsWith('water')) return { name: ingredient, status: 'exact' }
+  if (ingTerms.some(term => term.split(/\s+/).every(word => WATER_WORDS.has(word)))) return { name: ingredient, status: 'exact' }
   if (pantryNames.has(ing)) return { name: ingredient, status: 'exact' }
 
-  const ingTerms = expandTerms(ingredient)
   for (const p of pantryNames) {
     const pantryTerms = expandTerms(p)
     if (ingTerms.some(it => pantryTerms.some(pt => pt === it || pt.includes(it) || it.includes(pt))))
