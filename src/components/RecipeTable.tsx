@@ -478,7 +478,7 @@ export default function RecipeTable({
                       <span className="text-green-600 text-xs font-medium">✓ All set</span>
                     ) : (
                       <div className="flex flex-wrap gap-1">
-                        {missingItems.slice(0, 3).map(r => (
+                        {missingItems.map(r => (
                           <IngredientChip
                             key={r.name}
                             name={r.name}
@@ -490,15 +490,17 @@ export default function RecipeTable({
                             onUnmark={onUnmark}
                           />
                         ))}
-                        {missingItems.length > 3 && (
-                          <span className="px-1.5 py-0.5 bg-red-50 border border-red-200 rounded text-xs text-red-500">
-                            +{missingItems.length - 3}
-                          </span>
-                        )}
                         {missingItems.length === 0 && subItems.length > 0 && (
-                          <span className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
-                            {subItems.length} sub
-                          </span>
+                          subItems.map(r => (
+                            <span
+                              key={r.name}
+                              className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800"
+                              title={`${Math.round((r.similarity ?? 0) * 100)}% match`}
+                            >
+                              <span className="line-through text-gray-400">{r.name}</span>
+                              <span> - {r.substituteWith}</span>
+                            </span>
+                          ))
                         )}
                       </div>
                     )}
