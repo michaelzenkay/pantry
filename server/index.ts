@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import { createClient } from '@supabase/supabase-js'
-import { mountBot } from './bot.js'
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -17,29 +16,23 @@ function parseCsv(value: string | undefined): string[] {
   return (value ?? '').split(',').map(v => v.trim()).filter(Boolean)
 }
 
-function parseExternalUserMap(value: string | undefined): Map<string, string> {
+function parseDiscordUserMap(value: string | undefined): Map<string, string> {
   const entries = parseCsv(value)
   return new Map(entries.flatMap(entry => {
-    const [externalId, userId] = entry.split(':').map(v => v.trim())
-    return externalId && userId ? [[externalId, userId] as const] : []
+    const [discordId, userId] = entry.split(':').map(v => v.trim())
+    return discordId && userId ? [[discordId, userId] as const] : []
   }))
 }
 
-const TELEGRAM_USER_ID_MAP = parseExternalUserMap(process.env.TELEGRAM_USER_ID_MAP)
-const DISCORD_USER_ID_MAP = parseExternalUserMap(process.env.DISCORD_USER_ID_MAP)
+const DISCORD_USER_ID_MAP = parseDiscordUserMap(process.env.DISCORD_USER_ID_MAP)
 const SHARED_RECIPE_USER_IDS = [USER_ID, ...parseCsv(process.env.SHARED_RECIPE_USER_IDS)]
 const ALLOWED_USER_IDS = new Set([
   USER_ID,
   ...parseCsv(process.env.ALLOWED_USER_IDS),
-  ...TELEGRAM_USER_ID_MAP.values(),
   ...DISCORD_USER_ID_MAP.values(),
 ])
 
 function resolveUserId(c: { req: { header: (k: string) => string | undefined; query: (k: string) => string | undefined } }): string {
-  const telegramUserId = c.req.header('x-telegram-user-id') ?? c.req.query('telegram_user_id')
-  const mappedTelegramUserId = telegramUserId ? TELEGRAM_USER_ID_MAP.get(telegramUserId) : undefined
-  if (mappedTelegramUserId && ALLOWED_USER_IDS.has(mappedTelegramUserId)) return mappedTelegramUserId
-
   const discordUserId = c.req.header('x-discord-user-id') ?? c.req.query('discord_user_id')
   const mappedDiscordUserId = discordUserId ? DISCORD_USER_ID_MAP.get(discordUserId) : undefined
   if (mappedDiscordUserId && ALLOWED_USER_IDS.has(mappedDiscordUserId)) return mappedDiscordUserId
@@ -52,7 +45,7 @@ const app = new Hono()
 
 app.use('*', cors({
   origin: CORS_ORIGIN,
-  allowHeaders: ['Content-Type', 'x-user-id', 'x-telegram-user-id', 'x-discord-user-id'],
+  allowHeaders: ['Content-Type', 'x-user-id', 'x-discord-user-id'],
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
 }))
 
@@ -185,11 +178,6 @@ app.delete('/pantry/:id', async (c) => {
   if (error) return c.json({ error: error.message }, 500)
   return c.json({ ok: true })
 })
-
-if (process.env.TELEGRAM_BOT_TOKEN) {
-  mountBot(app, supabase, TELEGRAM_USER_ID_MAP)
-  console.log('Telegram bot webhook mounted at /telegram/webhook')
-}
 
 serve({ fetch: app.fetch, port: PORT }, () =>
   console.log(`API server running on http://localhost:${PORT}`),
