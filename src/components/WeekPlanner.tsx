@@ -26,17 +26,17 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
   const totalPlanned = DAYS.reduce((sum, d) => sum + (weekPlan[d]?.length ?? 0), 0)
 
   return (
-    <div className="space-y-6">
-      <div className="overflow-x-auto pb-2">
+    <div className="space-y-3">
+      <div className="overflow-x-auto pb-1">
         <div className="grid grid-cols-7 gap-2" style={{ minWidth: '700px' }}>
           {DAYS.map(day => {
             const entries = weekPlan[day] ?? []
             return (
-              <div key={day} className="space-y-2">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-center pb-1 border-b border-gray-100">
+              <div key={day} className="space-y-1">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide text-center pb-0.5 border-b border-gray-100">
                   {day}
                 </h3>
-                <div className="min-h-28 space-y-1.5">
+                <div className="min-h-10 space-y-1">
                   {entries.map(entry => {
                     const recipe = recipeMap[entry.recipeId]
                     if (!recipe) return null
@@ -44,7 +44,7 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                     return (
                       <div
                         key={entry.recipeId}
-                        className={`bg-white rounded-lg border p-2 relative group ${
+                        className={`bg-white rounded-lg border px-2 py-1.5 relative group ${
                           missingCount === 0 ? 'border-green-200' : 'border-orange-200'
                         }`}
                       >
@@ -52,7 +52,7 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                           {recipe.name}
                         </p>
                         {missingCount > 0 && (
-                          <p className="text-xs text-orange-500 mt-0.5">{missingCount} missing</p>
+                          <p className="text-xs text-orange-500">{missingCount} missing</p>
                         )}
                         <button
                           onClick={() => onRemove(entry.recipeId, day)}
@@ -74,14 +74,14 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
       </div>
 
       {shoppingMap.size > 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">
             Shopping List
             <span className="ml-2 text-xs font-normal text-gray-400">{shoppingMap.size} items to buy</span>
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
             {[...shoppingMap.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => (
-              <div key={name} className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-lg border border-red-100">
+              <div key={name} className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg border border-red-100">
                 <span className="text-sm text-red-700 font-medium flex-1 capitalize">{name}</span>
                 {count > 1 && <span className="text-xs text-red-400 shrink-0">×{count}</span>}
               </div>

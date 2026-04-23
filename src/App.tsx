@@ -261,10 +261,10 @@ export default function App() {
             </p>
           </div>
         ) : tab === 'recipes' ? (
-          <div className="space-y-6">
+          <div className="space-y-4">
             {weekCount > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">This Week</h2>
+              <div className="sticky top-[73px] z-20 bg-gray-50/95 backdrop-blur border-b border-gray-100 pt-1 pb-2">
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">This Week</h2>
                 <WeekPlanner computed={computed} weekPlan={weekPlan} onRemove={removeFromWeek} />
               </div>
             )}

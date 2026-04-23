@@ -37,9 +37,9 @@ export const SYNONYMS: Record<string, [string, number][]> = {
 // "gai lan (chinese broccoli)" → ["gai lan", "chinese broccoli"]
 const DESCRIPTORS = new Set([
   'a', 'an', 'the', 'fresh', 'frozen', 'dried', 'dry', 'canned', 'can', 'jar',
-  'bottle', 'bag', 'box', 'package', 'pkg', 'medium', 'large', 'small', 'sized',
+  'bottle', 'bag', 'box', 'package', 'pkg', 'pack', 'medium', 'large', 'small', 'sized',
   'size', 'whole', 'chopped', 'diced', 'sliced', 'minced', 'crushed', 'peeled',
-  'grated', 'shredded', 'cubed', 'ripe', 'raw', 'cooked', 'organic',
+  'grated', 'shredded', 'cubed', 'ripe', 'raw', 'cooked', 'organic', 'of', 'or',
 ])
 
 const SINGULARS: Record<string, string> = {
@@ -82,6 +82,10 @@ function normalizeTerm(name: string): string {
   return withoutVarieties.join(' ')
 }
 
+function displayIngredientName(name: string): string {
+  return normalizeTerm(name) || name.toLowerCase().trim()
+}
+
 function expandTerms(name: string): string[] {
   const lower = name.toLowerCase()
   const base = lower.replace(/\s*\([^)]*\)/g, '').trim()
@@ -95,15 +99,16 @@ function expandTerms(name: string): string[] {
 export function findMatch(pantryNames: Set<string>, ingredient: string): IngredientResult {
   const ing = ingredient.toLowerCase()
   const ingTerms = expandTerms(ingredient)
+  const displayName = displayIngredientName(ingredient)
 
-  if (ALWAYS_AVAILABLE.includes(ing)) return { name: ingredient, status: 'exact' }
-  if (ingTerms.some(term => term.split(/\s+/).every(word => WATER_WORDS.has(word)))) return { name: ingredient, status: 'exact' }
-  if (pantryNames.has(ing)) return { name: ingredient, status: 'exact' }
+  if (ALWAYS_AVAILABLE.includes(ing)) return { name: displayName, status: 'exact' }
+  if (ingTerms.some(term => term.split(/\s+/).every(word => WATER_WORDS.has(word)))) return { name: displayName, status: 'exact' }
+  if (pantryNames.has(ing)) return { name: displayName, status: 'exact' }
 
   for (const p of pantryNames) {
     const pantryTerms = expandTerms(p)
     if (ingTerms.some(it => pantryTerms.some(pt => pt === it || pt.includes(it) || it.includes(pt))))
-      return { name: ingredient, status: 'exact' }
+      return { name: displayName, status: 'exact' }
   }
 
   for (const { ingredients, similarity } of COMPOUND_SUBS[ing] ?? []) {
@@ -115,7 +120,7 @@ export function findMatch(pantryNames: Set<string>, ingredient: string): Ingredi
       })
     })
     if (allPresent)
-      return { name: ingredient, status: 'substitute', substituteWith: ingredients.join(' + '), similarity }
+      return { name: displayName, status: 'substitute', substituteWith: ingredients.join(' + '), similarity }
   }
 
   for (const [canonical, subs] of Object.entries(SYNONYMS)) {
@@ -135,10 +140,10 @@ export function findMatch(pantryNames: Set<string>, ingredient: string): Ingredi
         if (!best || 1.0 > best.similarity) best = { name: p, similarity: 1.0 }
       }
     }
-    if (best) return { name: ingredient, status: 'substitute', substituteWith: best.name, similarity: best.similarity }
+    if (best) return { name: displayName, status: 'substitute', substituteWith: best.name, similarity: best.similarity }
   }
 
-  return { name: ingredient, status: 'missing' }
+  return { name: displayName, status: 'missing' }
 }
 
 export function computeRecipes(
