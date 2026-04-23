@@ -26,6 +26,7 @@ function parseExternalUserMap(value: string | undefined): Map<string, string> {
 
 const TELEGRAM_USER_ID_MAP = parseExternalUserMap(process.env.TELEGRAM_USER_ID_MAP)
 const DISCORD_USER_ID_MAP = parseExternalUserMap(process.env.DISCORD_USER_ID_MAP)
+const SHARED_RECIPE_USER_IDS = [USER_ID, ...parseCsv(process.env.SHARED_RECIPE_USER_IDS)]
 const ALLOWED_USER_IDS = new Set([
   USER_ID,
   ...parseCsv(process.env.ALLOWED_USER_IDS),
@@ -62,7 +63,7 @@ app.get('/recipes', async (c) => {
   const { data, error } = await supabase
     .from('recipes')
     .select('*')
-    .eq('user_id', uid)
+    .in('user_id', [...new Set([uid, ...SHARED_RECIPE_USER_IDS])])
     .order('name')
   if (error) return c.json({ error: error.message }, 500)
   return c.json(data)
@@ -94,15 +95,31 @@ app.delete('/recipes/:id', async (c) => {
 app.patch('/recipes/:id', async (c) => {
   const uid = resolveUserId(c)
   const body = await c.req.json()
+  const recipeId = c.req.param('id')
   const { data, error } = await supabase
     .from('recipes')
     .update({ ...body, updated_at: new Date().toISOString() })
-    .eq('id', c.req.param('id'))
+    .eq('id', recipeId)
     .eq('user_id', uid)
     .select()
-    .single()
+    .maybeSingle()
   if (error) return c.json({ error: error.message }, 500)
-  return c.json(data)
+  if (data) return c.json(data)
+
+  const bodyKeys = Object.keys(body)
+  const isRatingOnly = bodyKeys.length === 1 && bodyKeys[0] === 'rating'
+  if (isRatingOnly) {
+    const { data: sharedRecipe, error: sharedError } = await supabase
+      .from('recipes')
+      .select('*')
+      .eq('id', recipeId)
+      .in('user_id', SHARED_RECIPE_USER_IDS)
+      .maybeSingle()
+    if (sharedError) return c.json({ error: sharedError.message }, 500)
+    if (sharedRecipe) return c.json(sharedRecipe)
+  }
+
+  return c.json({ error: 'Recipe not found for user' }, 404)
 })
 
 app.get('/recipes/exists', async (c) => {
@@ -111,7 +128,7 @@ app.get('/recipes/exists', async (c) => {
   const { data } = await supabase
     .from('recipes')
     .select('id')
-    .eq('user_id', uid)
+    .in('user_id', [...new Set([uid, ...SHARED_RECIPE_USER_IDS])])
     .ilike('name', name)
     .single()
   return c.json({ exists: !!data })
