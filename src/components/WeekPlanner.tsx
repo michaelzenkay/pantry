@@ -89,7 +89,7 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
           </div>
         </div>
       ) : totalPlanned > 0 ? (
-        <div className="bg-green-50 rounded-xl border border-green-100 p-5 text-center">
+        <div className="hidden">
           <p className="text-green-700 font-medium text-sm">✓ All set! You have everything for your week.</p>
         </div>
       ) : (
