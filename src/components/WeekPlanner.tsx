@@ -1,5 +1,5 @@
 import type { RecipeWithStatus, Day, WeekPlan } from '../types'
-import { DAYS } from '../types'
+import { DAYS, getSourceUrl } from '../types'
 
 interface Props {
   computed: RecipeWithStatus[]
@@ -41,6 +41,7 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                     const recipe = recipeMap[entry.recipeId]
                     if (!recipe) return null
                     const missingCount = recipe.ingredientResults.filter(r => r.status === 'missing').length
+                    const sourceUrl = getSourceUrl(recipe.notes)
                     return (
                       <div
                         key={entry.recipeId}
@@ -51,9 +52,22 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                         <p className="text-xs font-medium text-gray-800 leading-snug pr-4 line-clamp-2">
                           {recipe.name}
                         </p>
-                        {missingCount > 0 && (
-                          <p className="text-xs text-orange-500">{missingCount} missing</p>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {missingCount > 0 && (
+                            <span className="text-xs text-orange-500">{missingCount} missing</span>
+                          )}
+                          {sourceUrl && (
+                            <a
+                              href={sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={event => event.stopPropagation()}
+                              className="text-xs text-green-700 hover:text-green-800"
+                            >
+                              recipe
+                            </a>
+                          )}
+                        </div>
                         <button
                           onClick={() => onRemove(entry.recipeId, day)}
                           className="absolute top-1 right-1.5 text-gray-300 hover:text-red-400 font-medium text-sm leading-none"
