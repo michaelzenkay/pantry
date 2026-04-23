@@ -42,14 +42,6 @@ export interface RecipeWithStatus extends Recipe {
   ingredientResults: IngredientResult[]
 }
 
-function toTitleCase(value: string): string {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ')
-}
-
 function formatSourceHost(hostname: string): string {
   const host = hostname.toLowerCase().replace(/^www\./, '')
   const root = host.split('.').slice(0, -1).join('.') || host
@@ -59,21 +51,11 @@ function formatSourceHost(hostname: string): string {
     doobydobap: 'Dooby',
     lifebymikeg: 'Mike G',
     seriouseats: 'Kenji',
-    tastelife: 'Taste Life',
-    thewoksoflife: 'Woks of Life',
-    omnivorescookbook: 'Omnivore',
-    allrecipes: 'Allrecipes',
   }
 
   if (known[root]) return known[root]
 
-  const cleaned = root
-    .replace(/\./g, ' ')
-    .replace(/-/g, ' ')
-    .replace(/_/g, ' ')
-    .trim()
-
-  return toTitleCase(cleaned)
+  return root.replace(/[._-]+/g, '')
 }
 
 export function getSource(notes: string | null): string {
@@ -86,7 +68,13 @@ export function getSource(notes: string | null): string {
     const url = new URL(source)
     return formatSourceHost(url.hostname)
   } catch {
-    return toTitleCase(source.replace(/[_-]+/g, ' '))
+    return source
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .replace(/\/.*$/, '')
+      .replace(/\.[a-z]{2,}$/, '')
+      .replace(/[._-]+/g, '')
   }
 }
 
@@ -125,7 +113,7 @@ export function getRecipeCuisines(name: string, cuisine: string | null): string[
 
 export function formatRecipeCuisine(name: string, cuisine: string | null): string {
   const cuisines = getRecipeCuisines(name, cuisine)
-  return cuisines.length > 0 ? cuisines.join(' / ') : '—'
+  return cuisines.length > 0 ? cuisines.join(' / ') : '--'
 }
 
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
@@ -154,4 +142,23 @@ export interface MadeHistoryEntry {
   course: CourseSlot
   madeAt: string
   rating: number | null
+}
+
+export type RecipeRatings = Record<string, number>
+
+export interface ShoppingListItem {
+  id: string
+  name: string
+  count: number
+  done: boolean
+  source: 'manual' | 'week'
+}
+
+export interface PlannerState {
+  weekPlan: WeekPlan
+  history: MadeHistoryEntry[]
+  overrides: string[]
+  planned: string[]
+  recipeRatings: RecipeRatings
+  shoppingList: ShoppingListItem[]
 }

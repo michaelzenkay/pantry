@@ -48,6 +48,11 @@ export const api = {
       post<import('../types').Recipe>(`/recipes/${id}`, patch, 'PATCH'),
     remove: (id: string) => del(`/recipes/${id}`),
   },
+  plannerState: {
+    get: () => get<import('../types').PlannerState>('/planner-state'),
+    update: (state: import('../types').PlannerState) =>
+      post<import('../types').PlannerState>('/planner-state', state, 'PATCH'),
+  },
   pantry: {
     list: (category?: string) =>
       get<import('../types').PantryItem[]>(`/pantry${category ? `?category=${category}` : ''}`),

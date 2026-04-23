@@ -1,29 +1,18 @@
-import type { RecipeWithStatus, Day, WeekPlan } from '../types'
+import type { Day, RecipeWithStatus, WeekPlan } from '../types'
 import { DAYS, getSourceUrl } from '../types'
+import { getWeekShoppingEntries } from '../lib/shoppingList'
 
 interface Props {
   computed: RecipeWithStatus[]
   weekPlan: WeekPlan
   onRemove: (recipeId: string, day: Day) => void
+  onAddMissingToShoppingList: () => void
 }
 
-export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
-  const recipeMap = Object.fromEntries(computed.map(r => [r.id, r]))
-
-  const shoppingMap = new Map<string, number>()
-  for (const day of DAYS) {
-    for (const entry of weekPlan[day] ?? []) {
-      const recipe = recipeMap[entry.recipeId]
-      if (!recipe) continue
-      for (const ir of recipe.ingredientResults) {
-        if (ir.status === 'missing') {
-          shoppingMap.set(ir.name, (shoppingMap.get(ir.name) ?? 0) + 1)
-        }
-      }
-    }
-  }
-
-  const totalPlanned = DAYS.reduce((sum, d) => sum + (weekPlan[d]?.length ?? 0), 0)
+export default function WeekPlanner({ computed, weekPlan, onRemove, onAddMissingToShoppingList }: Props) {
+  const recipeMap = Object.fromEntries(computed.map(recipe => [recipe.id, recipe]))
+  const shoppingEntries = getWeekShoppingEntries(computed, weekPlan)
+  const totalPlanned = DAYS.reduce((sum, day) => sum + (weekPlan[day]?.length ?? 0), 0)
 
   return (
     <div className="space-y-3">
@@ -40,8 +29,10 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                   {entries.map(entry => {
                     const recipe = recipeMap[entry.recipeId]
                     if (!recipe) return null
-                    const missingCount = recipe.ingredientResults.filter(r => r.status === 'missing').length
+
+                    const missingCount = recipe.ingredientResults.filter(result => result.status === 'missing').length
                     const sourceUrl = getSourceUrl(recipe.notes)
+
                     return (
                       <div
                         key={entry.recipeId}
@@ -72,13 +63,13 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
                           onClick={() => onRemove(entry.recipeId, day)}
                           className="absolute top-1 right-1.5 text-gray-300 hover:text-red-400 font-medium text-sm leading-none"
                         >
-                          ×
+                          x
                         </button>
                       </div>
                     )
                   })}
                   {entries.length === 0 && (
-                    <p className="text-xs text-gray-200 text-center pt-6">—</p>
+                    <p className="text-xs text-gray-200 text-center pt-6">--</p>
                   )}
                 </div>
               </div>
@@ -87,24 +78,28 @@ export default function WeekPlanner({ computed, weekPlan, onRemove }: Props) {
         </div>
       </div>
 
-      {shoppingMap.size > 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-700 mb-2">
-            Shopping List
-            <span className="ml-2 text-xs font-normal text-gray-400">{shoppingMap.size} items to buy</span>
-          </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-            {[...shoppingMap.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => (
-              <div key={name} className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg border border-red-100">
-                <span className="text-sm text-red-700 font-medium flex-1 capitalize">{name}</span>
-                {count > 1 && <span className="text-xs text-red-400 shrink-0">×{count}</span>}
-              </div>
-            ))}
+      {shoppingEntries.length > 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-gray-700">
+              Missing this week
+              <span className="ml-2 text-xs font-normal text-gray-400">{shoppingEntries.length} item{shoppingEntries.length === 1 ? '' : 's'}</span>
+            </h3>
+            <p className="text-xs text-gray-500 mt-1 truncate">
+              {shoppingEntries.slice(0, 4).map(entry => entry.name).join(', ')}
+              {shoppingEntries.length > 4 && ` +${shoppingEntries.length - 4} more`}
+            </p>
           </div>
+          <button
+            onClick={onAddMissingToShoppingList}
+            className="px-3 py-1.5 rounded-lg bg-white border border-orange-200 text-sm font-medium text-orange-700 hover:bg-orange-50 transition-colors"
+          >
+            Add to shopping
+          </button>
         </div>
       ) : totalPlanned > 0 ? (
         <div className="hidden">
-          <p className="text-green-700 font-medium text-sm">✓ All set! You have everything for your week.</p>
+          <p className="text-green-700 font-medium text-sm">Ready for the week.</p>
         </div>
       ) : (
         <div className="text-center mt-8">

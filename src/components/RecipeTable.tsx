@@ -13,7 +13,7 @@ const STATUS_ORDER: Record<RecipeStatus, number> = { green: 0, yellow: 1, red: 2
 
 function formatTime(prep: number | null, cook: number | null): string {
   const total = (prep ?? 0) + (cook ?? 0)
-  if (!total) return '—'
+  if (!total) return '--'
   if (total >= 60) return `${Math.floor(total / 60)}h ${total % 60 > 0 ? `${total % 60}m` : ''}`.trim()
   return `${total}m`
 }
@@ -49,21 +49,20 @@ function matchesSearchQuery(recipe: RecipeWithStatus, query: string): boolean {
 
 interface ChipProps {
   name: string
-  overrides: Set<string>
-  planned: Set<string>
+  shoppingNames: Set<string>
   computeImpact: (ingredient: string) => RecipeWithStatus[]
-  onMarkHave: (ingredient: string) => void
-  onMarkPlanned: (ingredient: string) => void
-  onUnmark: (ingredient: string) => void
+  onAddToPantry: (ingredient: string) => void | Promise<void>
+  onAddToShopping: (ingredient: string) => void | Promise<void>
+  onRemoveFromShopping: (ingredient: string) => void | Promise<void>
 }
 
-function IngredientChip({ name, overrides, planned, computeImpact, onMarkHave, onMarkPlanned, onUnmark }: ChipProps) {
+function IngredientChip({ name, shoppingNames, computeImpact, onAddToPantry, onAddToShopping, onRemoveFromShopping }: ChipProps) {
   const [open, setOpen] = useState(false)
   const [impact, setImpact] = useState<RecipeWithStatus[] | null>(null)
+  const [saving, setSaving] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
   const key = name.toLowerCase()
-  const isOverride = overrides.has(key)
-  const isPlanned = planned.has(key)
+  const isInShopping = shoppingNames.has(key)
 
   useEffect(() => {
     if (!open) return
@@ -75,20 +74,31 @@ function IngredientChip({ name, overrides, planned, computeImpact, onMarkHave, o
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open, name, computeImpact])
 
-  const chipClass = isOverride
-    ? 'bg-green-50 border-green-300 text-green-700'
-    : isPlanned
-    ? 'bg-blue-50 border-blue-300 text-blue-700'
+  async function runAction(action: () => void | Promise<void>) {
+    if (saving) return
+    setSaving(true)
+    try {
+      await action()
+      setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const chipClass = isInShopping
+    ? 'bg-blue-50 border-blue-300 text-blue-700 hover:border-blue-400 hover:bg-blue-100'
     : 'bg-red-50 border-red-200 text-red-700 hover:border-red-400 hover:bg-red-100'
 
   return (
     <span ref={ref} className="relative inline-block" onClick={e => e.stopPropagation()}>
       <button
         onClick={() => setOpen(v => !v)}
+        onContextMenu={event => {
+          event.preventDefault()
+          setOpen(true)
+        }}
         className={`px-1.5 py-0.5 border rounded text-xs transition-colors cursor-pointer ${chipClass}`}
       >
-        {isOverride && <span className="mr-0.5 text-green-500">✓</span>}
-        {isPlanned && <span className="mr-0.5">🛒</span>}
         {name}
       </button>
 
@@ -99,37 +109,36 @@ function IngredientChip({ name, overrides, planned, computeImpact, onMarkHave, o
           </div>
 
           <div className="p-2 space-y-1">
-            {(isOverride || isPlanned) ? (
+            <button
+              onClick={() => void runAction(() => onAddToPantry(name))}
+              disabled={saving}
+              className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-green-700 hover:bg-green-50 transition-colors disabled:opacity-40"
+            >
+              I have this - add to pantry
+            </button>
+            {isInShopping ? (
               <button
-                onClick={() => { onUnmark(name); setOpen(false) }}
-                className="w-full text-left px-3 py-2 rounded-lg text-xs text-gray-600 hover:bg-gray-100 transition-colors"
+                onClick={() => void runAction(() => onRemoveFromShopping(name))}
+                disabled={saving}
+                className="w-full text-left px-3 py-2 rounded-lg text-xs text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
               >
-                ✕ Remove override
+                Remove from shopping
               </button>
             ) : (
-              <>
-                <button
-                  onClick={() => { onMarkHave(name); setOpen(false) }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-green-700 hover:bg-green-50 transition-colors flex items-center gap-2"
-                >
-                  <span className="text-base leading-none">✓</span>
-                  <span>Got it — I have this</span>
-                </button>
-                <button
-                  onClick={() => { onMarkPlanned(name); setOpen(false) }}
-                  className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-50 transition-colors flex items-center gap-2"
-                >
-                  <span className="text-base leading-none">🛒</span>
-                  <span>Will buy — someone's grabbing it</span>
-                </button>
-              </>
+              <button
+                onClick={() => void runAction(() => onAddToShopping(name))}
+                disabled={saving}
+                className="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-blue-700 hover:bg-blue-50 transition-colors disabled:opacity-40"
+              >
+                I do not have this - add to cart
+              </button>
             )}
           </div>
 
           {impact !== null && impact.length > 0 && (
             <div className="border-t border-gray-100 px-3 py-2.5">
               <p className="text-xs text-gray-400 mb-1.5">
-                Buying this also unlocks {impact.length} more recipe{impact.length > 1 ? 's' : ''}:
+                Adding this also unlocks {impact.length} more recipe{impact.length > 1 ? 's' : ''}:
               </p>
               <div className="space-y-1">
                 {impact.slice(0, 4).map(r => (
@@ -145,7 +154,7 @@ function IngredientChip({ name, overrides, planned, computeImpact, onMarkHave, o
             </div>
           )}
 
-          {impact !== null && impact.length === 0 && !isOverride && !isPlanned && (
+          {impact !== null && impact.length === 0 && !isInShopping && (
             <div className="border-t border-gray-100 px-3 py-2">
               <p className="text-xs text-gray-400">No other recipes unlock with just this ingredient.</p>
             </div>
@@ -358,12 +367,11 @@ interface Props {
   computed: RecipeWithStatus[]
   filters: FilterState
   weekPlan: WeekPlan
-  overrides: Set<string>
-  planned: Set<string>
+  shoppingNames: Set<string>
   onAddToWeek: (recipeId: string, day: Day) => void
-  onMarkHave: (ingredient: string) => void
-  onMarkPlanned: (ingredient: string) => void
-  onUnmark: (ingredient: string) => void
+  onAddToPantry: (ingredient: string) => void | Promise<void>
+  onAddToShopping: (ingredient: string) => void | Promise<void>
+  onRemoveFromShopping: (ingredient: string) => void | Promise<void>
   computeImpact: (ingredient: string) => RecipeWithStatus[]
   onUpdateRecipe: (recipeId: string, patch: Partial<Recipe>) => Promise<void>
   onDeleteRecipe: (recipeId: string) => Promise<void>
@@ -371,8 +379,8 @@ interface Props {
 
 export default function RecipeTable({
   computed, filters, weekPlan,
-  overrides, planned,
-  onAddToWeek, onMarkHave, onMarkPlanned, onUnmark, computeImpact,
+  shoppingNames,
+  onAddToWeek, onAddToPantry, onAddToShopping, onRemoveFromShopping, computeImpact,
   onUpdateRecipe, onDeleteRecipe,
 }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -445,18 +453,12 @@ export default function RecipeTable({
       <div className="px-4 py-2.5 border-b border-gray-100 text-xs text-gray-400">
         {filtered.length} recipe{filtered.length !== 1 ? 's' : ''}
         {filtered.length !== computed.length && ` (of ${computed.length})`}
-        {(overrides.size > 0 || planned.size > 0) && (
-          <span className="ml-3 text-blue-500">
-            {[overrides.size > 0 && `${overrides.size} on hand`, planned.size > 0 && `${planned.size} planned`]
-              .filter(Boolean).join(', ')} — overrides active
-          </span>
-        )}
       </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
-            <th className="text-left px-4 py-3 w-5"></th>
-            <th className="text-left px-4 py-3">Recipe</th>
+            <th className="text-left pl-3 pr-2 py-3 w-4"></th>
+            <th className="text-left pl-2 pr-4 py-3 w-[20rem] lg:w-[24rem]">Recipe</th>
             <th className="text-left px-4 py-3 hidden lg:table-cell">Cuisine</th>
             <th className="text-left px-4 py-3 hidden md:table-cell">Time</th>
             <th className="text-left px-4 py-3">Missing</th>
@@ -479,31 +481,35 @@ export default function RecipeTable({
                   onClick={() => setExpanded(isExpanded ? null : recipe.id)}
                   className={`border-b border-gray-50 cursor-pointer transition-colors ${cfg.row} ${isExpanded ? 'bg-gray-50' : ''}`}
                 >
-                  <td className="px-4 py-3">
+                  <td className="pl-3 pr-2 py-3 align-top">
                     <span className={`inline-block w-2.5 h-2.5 rounded-full ${cfg.dot}`} />
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px]">
-                    <span className="line-clamp-2 leading-snug">{recipe.name}</span>
+                  <td className="pl-2 pr-4 py-3 align-top font-medium text-gray-900 w-[20rem] lg:w-[24rem] min-w-[14rem]">
+                    <span
+                      className={`block break-words leading-snug ${isExpanded ? '' : 'line-clamp-4'}`}
+                      title={recipe.name}
+                    >
+                      {recipe.name}
+                    </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500 hidden lg:table-cell text-xs">{formatRecipeCuisine(recipe.name, recipe.cuisine)}</td>
-                  <td className="px-4 py-3 text-gray-500 hidden md:table-cell text-xs">
+                  <td className="px-4 py-3 align-top text-gray-500 hidden lg:table-cell text-xs">{formatRecipeCuisine(recipe.name, recipe.cuisine)}</td>
+                  <td className="px-4 py-3 align-top text-gray-500 hidden md:table-cell text-xs">
                     {formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes)}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 align-top">
                     {missingItems.length === 0 && subItems.length === 0 ? (
-                      <span className="text-green-600 text-xs font-medium">✓ All set</span>
+                      <span className="text-green-600 text-xs font-medium">Ready</span>
                     ) : (
                       <div className="flex flex-wrap gap-1">
                         {missingItems.map(r => (
                           <IngredientChip
                             key={r.name}
                             name={r.name}
-                            overrides={overrides}
-                            planned={planned}
+                            shoppingNames={shoppingNames}
                             computeImpact={computeImpact}
-                            onMarkHave={onMarkHave}
-                            onMarkPlanned={onMarkPlanned}
-                            onUnmark={onUnmark}
+                            onAddToPantry={onAddToPantry}
+                            onAddToShopping={onAddToShopping}
+                            onRemoveFromShopping={onRemoveFromShopping}
                           />
                         ))}
                         {missingItems.length === 0 && subItems.length > 0 && (
@@ -521,10 +527,10 @@ export default function RecipeTable({
                       </div>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-3 py-3 align-top">
                     <DayPicker recipeId={recipe.id} weekPlan={weekPlan} onAdd={day => onAddToWeek(recipe.id, day)} />
                   </td>
-                  <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-500">
+                  <td className="px-4 py-3 align-top hidden md:table-cell text-xs text-gray-500">
                     {sourceLabel && (
                       sourceUrl ? (
                         <a
@@ -556,7 +562,7 @@ export default function RecipeTable({
                               {DISH_TYPE_LABELS[dishType]}
                             </span>
                           ))}
-                          {formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes) !== 'â€”' && (
+                          {formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes) !== '--' && (
                             <span>{formatTime(recipe.prep_time_minutes, recipe.cook_time_minutes)}</span>
                           )}
                           {sourceUrl && (
@@ -628,12 +634,11 @@ export default function RecipeTable({
                               <IngredientChip
                                 key={r.name}
                                 name={r.name}
-                                overrides={overrides}
-                                planned={planned}
+                                shoppingNames={shoppingNames}
                                 computeImpact={computeImpact}
-                                onMarkHave={onMarkHave}
-                                onMarkPlanned={onMarkPlanned}
-                                onUnmark={onUnmark}
+                                onAddToPantry={onAddToPantry}
+                                onAddToShopping={onAddToShopping}
+                                onRemoveFromShopping={onRemoveFromShopping}
                               />
                             ))}
                           </div>

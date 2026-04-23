@@ -4,132 +4,130 @@ import RecipeTable from './components/RecipeTable'
 import RecipeFilters, { DEFAULT_FILTERS } from './components/RecipeFilters'
 import PantryPanel from './components/PantryPanel'
 import CalendarPanel from './components/CalendarPanel'
+import ShoppingListPanel from './components/ShoppingListPanel'
 import WeekPlanner from './components/WeekPlanner'
-import type { DishType, MadeHistoryEntry, PlannedRecipe, Recipe, PantryItem, Day, WeekPlan, RecipeWithStatus } from './types'
+import type { DishType, MadeHistoryEntry, PlannerState, PlannedRecipe, RecipeRatings, Recipe, PantryItem, Day, WeekPlan, RecipeWithStatus, ShoppingListItem } from './types'
 import { DAYS, getRecipeCuisines, getSource } from './types'
 import { computeRecipes, getDishTypes, getRecipeProteins } from './lib/matching'
 import type { FilterState } from './components/RecipeFilters'
+import { isPlannerStateEmpty, loadPlannerStateLocal, savePlannerStateLocal } from './lib/plannerState'
+import { addManualShoppingItem, getWeekShoppingEntries, mergeWeekShoppingItems, normalizeShoppingName, removeShoppingItemByName } from './lib/shoppingList'
 
-type Tab = 'recipes' | 'calendar' | 'pantry'
-
-const WEEK_PLAN_KEY = 'pantry_week_plan'
-const OVERRIDES_KEY = 'pantry_overrides'
-const PLANNED_KEY   = 'pantry_planned'
-const HISTORY_KEY   = 'pantry_made_history'
-
-function loadSet(key: string): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(key) ?? '[]')) } catch { return new Set() }
-}
-function saveSet(key: string, s: Set<string>) {
-  localStorage.setItem(key, JSON.stringify([...s]))
-}
-function loadWeekPlan(): WeekPlan {
-  try {
-    const raw = JSON.parse(localStorage.getItem(WEEK_PLAN_KEY) ?? '{}') as Record<string, unknown>
-    const next: WeekPlan = {}
-    for (const day of DAYS) {
-      const value = raw[day]
-      if (!Array.isArray(value)) continue
-      next[day] = value
-        .map((entry): PlannedRecipe | null => {
-          if (typeof entry === 'string') return { recipeId: entry, meal: 'dinner', course: 'main' }
-          if (entry && typeof entry === 'object' && 'recipeId' in entry) {
-            const candidate = entry as Partial<PlannedRecipe>
-            return {
-              recipeId: String(candidate.recipeId),
-              meal: candidate.meal ?? 'dinner',
-              course: candidate.course ?? 'main',
-            }
-          }
-          return null
-        })
-        .filter((entry): entry is PlannedRecipe => !!entry)
-    }
-    return next
-  } catch { return {} }
-}
-function saveWeekPlan(plan: WeekPlan) {
-  localStorage.setItem(WEEK_PLAN_KEY, JSON.stringify(plan))
-}
-function loadHistory(): MadeHistoryEntry[] {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]') } catch { return [] }
-}
-function saveHistory(history: MadeHistoryEntry[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history))
-}
+type Tab = 'recipes' | 'shopping' | 'calendar' | 'pantry'
 
 export default function App() {
+  const initialPlannerState = useMemo(() => loadPlannerStateLocal(), [])
   const [tab, setTab]         = useState<Tab>('recipes')
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [pantry, setPantry]   = useState<PantryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [filters, setFilters] = useState<FilterState>(() => ({ ...DEFAULT_FILTERS, cuisines: new Set(), proteins: new Set(), sources: new Set(), dishTypes: new Set() }))
-  const [weekPlan, setWeekPlan]   = useState<WeekPlan>(loadWeekPlan)
-  const [overrides, setOverrides] = useState<Set<string>>(() => loadSet(OVERRIDES_KEY))
-  const [planned, setPlanned]     = useState<Set<string>>(() => loadSet(PLANNED_KEY))
-  const [history, setHistory]     = useState<MadeHistoryEntry[]>(loadHistory)
+  const [weekPlan, setWeekPlan] = useState<WeekPlan>(initialPlannerState.weekPlan)
+  const [history, setHistory] = useState(initialPlannerState.history)
+  const [recipeRatings, setRecipeRatings] = useState<RecipeRatings>(initialPlannerState.recipeRatings)
+  const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>(initialPlannerState.shoppingList)
+  const [plannerReady, setPlannerReady] = useState(false)
+  const [plannerRemoteEnabled, setPlannerRemoteEnabled] = useState(false)
 
-  useEffect(() => {
-    Promise.all([api.recipes.list(), api.pantry.list()])
-      .then(([r, p]) => {
-        setRecipes(r)
-        setPantry(p)
-        setLoadError(null)
-      })
-      .catch((err: unknown) => {
-        setLoadError(err instanceof Error ? err.message : 'Unable to load pantry data.')
-      })
-      .finally(() => setLoading(false))
+  const applyPlannerState = useCallback((state: PlannerState) => {
+    setWeekPlan(state.weekPlan)
+    setHistory(state.history)
+    setRecipeRatings(state.recipeRatings)
+    setShoppingList(state.shoppingList)
+    savePlannerStateLocal(state)
   }, [])
 
-  const allOverrides = useMemo(() => new Set([...overrides, ...planned]), [overrides, planned])
-  const computed = useMemo(() => computeRecipes(recipes, pantry, allOverrides), [recipes, pantry, allOverrides])
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadApp() {
+      const localPlannerState = loadPlannerStateLocal()
+
+      try {
+        const plannerStatePromise = api.plannerState.get().then(state => ({ ok: true as const, state })).catch(() => ({ ok: false as const, state: null }))
+        const [recipeData, pantryData, remotePlannerState] = await Promise.all([
+          api.recipes.list(),
+          api.pantry.list(),
+          plannerStatePromise,
+        ])
+
+        if (cancelled) return
+
+        setRecipes(recipeData)
+        setPantry(pantryData)
+        setLoadError(null)
+        setPlannerRemoteEnabled(remotePlannerState.ok)
+
+        if (remotePlannerState.ok && remotePlannerState.state && !isPlannerStateEmpty(remotePlannerState.state)) {
+          applyPlannerState(remotePlannerState.state)
+        } else {
+          applyPlannerState(localPlannerState)
+          if (remotePlannerState.ok && !isPlannerStateEmpty(localPlannerState)) {
+            void api.plannerState.update(localPlannerState).catch(() => {})
+          }
+        }
+      } catch (err: unknown) {
+        if (cancelled) return
+        setLoadError(err instanceof Error ? err.message : 'Unable to load pantry data.')
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setPlannerReady(true)
+        }
+      }
+    }
+
+    void loadApp()
+    return () => {
+      cancelled = true
+    }
+  }, [applyPlannerState])
+
+  const plannerState = useMemo<PlannerState>(() => ({
+    weekPlan,
+    history,
+    overrides: [],
+    planned: [],
+    recipeRatings,
+    shoppingList,
+  }), [weekPlan, history, recipeRatings, shoppingList])
+
+  useEffect(() => {
+    if (!plannerReady) return
+
+    savePlannerStateLocal(plannerState)
+    if (!plannerRemoteEnabled) return
+    const timeout = window.setTimeout(() => {
+      void api.plannerState.update(plannerState).catch(() => {})
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [plannerState, plannerReady, plannerRemoteEnabled])
+
+  const recipesWithRatings = useMemo(
+    () => recipes.map(recipe => ({
+      ...recipe,
+      rating: recipeRatings[recipe.id] ?? recipe.rating,
+    })),
+    [recipes, recipeRatings]
+  )
+  const computed = useMemo(() => computeRecipes(recipesWithRatings, pantry), [recipesWithRatings, pantry])
+  const shoppingNames = useMemo(
+    () => new Set(shoppingList.filter(item => !item.done).map(item => normalizeShoppingName(item.name))),
+    [shoppingList]
+  )
 
   // Compute what changes if one more ingredient were available
   const computeImpact = useCallback((ingredient: string): RecipeWithStatus[] => {
-    const hypothetical = computeRecipes(recipes, pantry, new Set([...allOverrides, ingredient.toLowerCase()]))
+    const hypothetical = computeRecipes(recipesWithRatings, pantry, new Set([ingredient.toLowerCase()]))
     return hypothetical.filter(h => {
       const current = computed.find(c => c.id === h.id)
       if (!current) return false
       const order: Record<string, number> = { green: 0, yellow: 1, red: 2 }
       return order[h.status] < order[current.status]
     })
-  }, [recipes, pantry, computed, allOverrides])
-
-  function markHave(ingredient: string) {
-    setOverrides(prev => {
-      const next = new Set([...prev, ingredient.toLowerCase()])
-      saveSet(OVERRIDES_KEY, next)
-      return next
-    })
-    setPlanned(prev => {
-      const next = new Set(prev)
-      next.delete(ingredient.toLowerCase())
-      saveSet(PLANNED_KEY, next)
-      return next
-    })
-  }
-
-  function markPlanned(ingredient: string) {
-    setPlanned(prev => {
-      const next = new Set([...prev, ingredient.toLowerCase()])
-      saveSet(PLANNED_KEY, next)
-      return next
-    })
-    setOverrides(prev => {
-      const next = new Set(prev)
-      next.delete(ingredient.toLowerCase())
-      saveSet(OVERRIDES_KEY, next)
-      return next
-    })
-  }
-
-  function unmark(ingredient: string) {
-    const key = ingredient.toLowerCase()
-    setOverrides(prev => { const n = new Set(prev); n.delete(key); saveSet(OVERRIDES_KEY, n); return n })
-    setPlanned(prev => { const n = new Set(prev); n.delete(key); saveSet(PLANNED_KEY, n); return n })
-  }
+  }, [recipesWithRatings, pantry, computed])
 
   const availableCuisines = useMemo(
     () => [...new Set(recipes.flatMap(r => getRecipeCuisines(r.name, r.cuisine)))].sort(),
@@ -164,23 +162,22 @@ export default function App() {
   function addToWeek(recipeId: string, day: Day) {
     setWeekPlan(prev => {
       const dayList = prev[day] ?? []
-      const next = dayList.some(entry => entry.recipeId === recipeId)
+      return dayList.some(entry => entry.recipeId === recipeId)
         ? { ...prev, [day]: dayList.filter(entry => entry.recipeId !== recipeId) }
         : { ...prev, [day]: [...dayList, { recipeId, meal: 'dinner', course: 'main' } satisfies PlannedRecipe] }
-      saveWeekPlan(next)
-      return next
     })
   }
   function removeFromWeek(recipeId: string, day: Day) {
     setWeekPlan(prev => {
-      const next = { ...prev, [day]: (prev[day] ?? []).filter(entry => entry.recipeId !== recipeId) }
-      saveWeekPlan(next)
-      return next
+      return { ...prev, [day]: (prev[day] ?? []).filter(entry => entry.recipeId !== recipeId) }
     })
   }
 
   async function markMade(recipe: RecipeWithStatus, day: Day, rating: number | null) {
-    if (rating !== null) await updateRecipe(recipe.id, { rating })
+    const effectiveRating = rating ?? recipeRatings[recipe.id] ?? recipe.rating ?? null
+    if (rating !== null) {
+      setRecipeRatings(prev => ({ ...prev, [recipe.id]: rating }))
+    }
     const plannedEntry = (weekPlan[day] ?? []).find(entry => entry.recipeId === recipe.id)
     const entry: MadeHistoryEntry = {
       id: `${Date.now()}-${recipe.id}`,
@@ -190,19 +187,16 @@ export default function App() {
       meal: plannedEntry?.meal ?? 'dinner',
       course: plannedEntry?.course ?? 'main',
       madeAt: new Date().toISOString(),
-      rating,
+      rating: effectiveRating,
     }
     setHistory(prev => {
-      const next = [entry, ...prev].slice(0, 100)
-      saveHistory(next)
-      return next
+      return [entry, ...prev].slice(0, 100)
     })
     removeFromWeek(recipe.id, day)
   }
 
   function clearHistory() {
     setHistory([])
-    saveHistory([])
   }
 
   async function updateRecipe(recipeId: string, patch: Partial<Recipe>) {
@@ -214,15 +208,71 @@ export default function App() {
     await api.recipes.remove(recipeId)
     setRecipes(prev => prev.filter(recipe => recipe.id !== recipeId))
     setWeekPlan(prev => {
-      const next = Object.fromEntries(
+      return Object.fromEntries(
         DAYS.map(day => [day, (prev[day] ?? []).filter(entry => entry.recipeId !== recipeId)])
       ) as WeekPlan
-      saveWeekPlan(next)
+    })
+    setRecipeRatings(prev => {
+      const next = { ...prev }
+      delete next[recipeId]
       return next
     })
   }
 
   const weekCount = DAYS.reduce((sum, d) => sum + (weekPlan[d]?.length ?? 0), 0)
+  const weekShoppingSuggestions = useMemo(
+    () => getWeekShoppingEntries(computed, weekPlan),
+    [computed, weekPlan]
+  )
+  const shoppingPendingCount = useMemo(
+    () => shoppingList.filter(item => !item.done).length,
+    [shoppingList]
+  )
+
+  function addShoppingItem(name: string) {
+    setShoppingList(prev => addManualShoppingItem(prev, name))
+  }
+
+  async function addIngredientToPantry(name: string) {
+    const normalized = normalizeShoppingName(name)
+    if (pantry.some(item => item.name.toLowerCase() === normalized)) {
+      setShoppingList(prev => removeShoppingItemByName(prev, name))
+      return
+    }
+
+    const created = await api.pantry.add({
+      name,
+      quantity: null,
+      unit: null,
+      category: 'pantry',
+      expiry_date: null,
+      notes: null,
+    })
+
+    setPantry(prev => [...prev, created])
+    setShoppingList(prev => removeShoppingItemByName(prev, name))
+  }
+
+  function addWeekSuggestionsToShoppingList() {
+    setShoppingList(prev => mergeWeekShoppingItems(prev, weekShoppingSuggestions))
+    setTab('shopping')
+  }
+
+  function toggleShoppingItem(id: string) {
+    setShoppingList(prev => prev.map(item => item.id === id ? { ...item, done: !item.done } : item))
+  }
+
+  function removeShoppingItem(id: string) {
+    setShoppingList(prev => prev.filter(item => item.id !== id))
+  }
+
+  function removeShoppingItemByIngredient(name: string) {
+    setShoppingList(prev => removeShoppingItemByName(prev, name))
+  }
+
+  function clearDoneShoppingItems() {
+    setShoppingList(prev => prev.filter(item => !item.done))
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -230,7 +280,7 @@ export default function App() {
         <div className="max-w-screen-xl mx-auto flex items-center justify-between">
           <h1 className="text-lg font-semibold text-gray-900">Pantry</h1>
           <nav className="flex gap-1">
-            {(['recipes', 'calendar', 'pantry'] as Tab[]).map(t => (
+            {(['recipes', 'shopping', 'calendar', 'pantry'] as Tab[]).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -241,6 +291,9 @@ export default function App() {
                 {t}
                 {t === 'calendar' && weekCount > 0 && (
                   <span className="ml-1.5 text-xs opacity-70">{weekCount}</span>
+                )}
+                {t === 'shopping' && shoppingPendingCount > 0 && (
+                  <span className="ml-1.5 text-xs opacity-70">{shoppingPendingCount}</span>
                 )}
                 {t === 'pantry' && !loading && (
                   <span className="ml-1.5 text-xs opacity-70">{pantry.length}</span>
@@ -254,7 +307,7 @@ export default function App() {
       <main className="px-6 py-6 max-w-screen-xl mx-auto">
         {loading ? (
           <div className="flex items-center justify-center mt-16 text-gray-400 text-sm gap-2">
-            <span className="animate-spin inline-block">⟳</span> Loading...
+            <span className="inline-block">...</span> Loading...
           </div>
         ) : loadError ? (
           <div className="max-w-xl mx-auto mt-16 bg-white border border-red-100 rounded-xl p-5">
@@ -266,22 +319,29 @@ export default function App() {
           </div>
         ) : tab === 'recipes' ? (
           <div className="space-y-4">
-            {weekCount > 0 && (
-              <div className="sticky top-[73px] z-20 bg-gray-50/95 backdrop-blur border-b border-gray-100 pt-1 pb-2">
-                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">This Week</h2>
-                <WeekPlanner computed={computed} weekPlan={weekPlan} onRemove={removeFromWeek} />
+            <div className="sticky top-[73px] z-20 space-y-2 bg-gray-50/95 backdrop-blur pb-2">
+              {weekCount > 0 && (
+                <div className="border-b border-gray-100 pt-1 pb-2">
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">This Week</h2>
+                  <WeekPlanner
+                    computed={computed}
+                    weekPlan={weekPlan}
+                    onRemove={removeFromWeek}
+                    onAddMissingToShoppingList={addWeekSuggestionsToShoppingList}
+                  />
+                </div>
+              )}
+              <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
+                <label className="block">
+                  <span className="sr-only">Search recipes</span>
+                  <input
+                    value={filters.query}
+                    onChange={e => setFilters(prev => ({ ...prev, query: e.target.value }))}
+                    placeholder="Search recipes, ingredients, tags, cuisine, or source..."
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400"
+                  />
+                </label>
               </div>
-            )}
-            <div className="bg-white border border-gray-200 rounded-xl px-4 py-3">
-              <label className="block">
-                <span className="sr-only">Search recipes</span>
-                <input
-                  value={filters.query}
-                  onChange={e => setFilters(prev => ({ ...prev, query: e.target.value }))}
-                  placeholder="Search recipes, ingredients, tags, cuisine, or source..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400"
-                />
-              </label>
             </div>
             <div className="flex flex-col lg:flex-row gap-6 items-start">
               <RecipeFilters
@@ -299,12 +359,11 @@ export default function App() {
                   computed={computed}
                   filters={filters}
                   weekPlan={weekPlan}
-                  overrides={overrides}
-                  planned={planned}
+                  shoppingNames={shoppingNames}
                   onAddToWeek={addToWeek}
-                  onMarkHave={markHave}
-                  onMarkPlanned={markPlanned}
-                  onUnmark={unmark}
+                  onAddToPantry={addIngredientToPantry}
+                  onAddToShopping={addShoppingItem}
+                  onRemoveFromShopping={removeShoppingItemByIngredient}
                   computeImpact={computeImpact}
                   onUpdateRecipe={updateRecipe}
                   onDeleteRecipe={deleteRecipe}
@@ -312,6 +371,16 @@ export default function App() {
               </div>
             </div>
           </div>
+        ) : tab === 'shopping' ? (
+          <ShoppingListPanel
+            items={shoppingList}
+            weekSuggestions={weekShoppingSuggestions}
+            onAddItem={addShoppingItem}
+            onAddWeekSuggestions={addWeekSuggestionsToShoppingList}
+            onToggleItem={toggleShoppingItem}
+            onRemoveItem={removeShoppingItem}
+            onClearDone={clearDoneShoppingItems}
+          />
         ) : tab === 'calendar' ? (
           <CalendarPanel
             computed={computed}

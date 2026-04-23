@@ -29,8 +29,8 @@ export const DEFAULT_FILTERS: FilterState = {
 const STATUS_LABELS: Record<RecipeStatus | 'all', string> = {
   all:    'All',
   green:  'Ready',
-  yellow: 'Light trip',
-  red:    'Need shopping',
+  yellow: 'Close',
+  red:    'Shop',
 }
 
 const STATUS_DOT: Record<RecipeStatus, string> = {

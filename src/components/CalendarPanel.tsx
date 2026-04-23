@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import type { CourseSlot, Day, MadeHistoryEntry, MealSlot, PantryItem, RecipeWithStatus, WeekPlan } from '../types'
 import { DAYS, getSourceUrl } from '../types'
 
@@ -7,7 +8,7 @@ interface Props {
   weekPlan: WeekPlan
   history: MadeHistoryEntry[]
   onRemove: (recipeId: string, day: Day) => void
-  onMarkMade: (recipe: RecipeWithStatus, day: Day, rating: number | null) => void
+  onMarkMade: (recipe: RecipeWithStatus, day: Day, rating: number | null) => Promise<void>
   onClearHistory: () => void
 }
 
@@ -44,6 +45,12 @@ function formatTime(recipe: RecipeWithStatus): string {
   return `${total}m`
 }
 
+function getMissingItems(recipe: RecipeWithStatus): string[] {
+  return recipe.ingredientResults
+    .filter(result => result.status === 'missing')
+    .map(result => result.name)
+}
+
 export default function CalendarPanel({
   computed,
   pantry,
@@ -53,7 +60,10 @@ export default function CalendarPanel({
   onMarkMade,
   onClearHistory,
 }: Props) {
+  const [selected, setSelected] = useState<{ day: Day; recipeId: string } | null>(null)
+  const [saving, setSaving] = useState(false)
   const recipeMap = Object.fromEntries(computed.map(recipe => [recipe.id, recipe]))
+
   const useThisWeek = pantry
     .map(item => ({ item, remaining: daysUntil(item.expiry_date) }))
     .filter(({ remaining }) => remaining !== null && remaining <= 7)
@@ -69,6 +79,36 @@ export default function CalendarPanel({
   })
 
   const totalPlanned = DAYS.reduce((sum, day) => sum + (weekPlan[day]?.length ?? 0), 0)
+  const activeRecipe = useMemo(() => {
+    if (!selected) return null
+    const recipe = recipeMap[selected.recipeId]
+    if (!recipe) return null
+    const missingItems = getMissingItems(recipe)
+
+    return {
+      day: selected.day,
+      recipe,
+      missingItems,
+      sourceUrl: getSourceUrl(recipe.notes),
+    }
+  }, [recipeMap, selected, weekPlan])
+
+  async function markMadeAndClose(rating: number | null) {
+    if (!activeRecipe || saving) return
+    setSaving(true)
+    try {
+      await onMarkMade(activeRecipe.recipe, activeRecipe.day, rating)
+      setSelected(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function removeAndClose() {
+    if (!activeRecipe) return
+    onRemove(activeRecipe.recipe.id, activeRecipe.day)
+    setSelected(null)
+  }
 
   return (
     <div className="space-y-5">
@@ -106,45 +146,39 @@ export default function CalendarPanel({
                   {plannedEntries.map(entry => {
                     const recipe = recipeMap[entry.recipeId]
                     if (!recipe) return null
-                    const missing = recipe.ingredientResults.filter(result => result.status === 'missing').length
+
+                    const missingItems = getMissingItems(recipe)
                     const sourceUrl = getSourceUrl(recipe.notes)
 
                     return (
-                      <div
+                      <button
                         key={entry.recipeId}
-                        className={`rounded-lg border p-2 space-y-2 ${
-                          missing === 0 ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'
+                        type="button"
+                        onClick={() => setSelected({ day, recipeId: recipe.id })}
+                        className={`w-full text-left rounded-lg border p-2 space-y-1.5 transition-colors hover:border-gray-300 ${
+                          missingItems.length === 0 ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'
                         }`}
                       >
                         <div>
                           <p className="text-xs font-semibold text-gray-800 leading-snug">{recipe.name}</p>
                           <div className="flex flex-wrap gap-1.5 mt-1 text-[11px] text-gray-500">
                             {formatTime(recipe) && <span>{formatTime(recipe)}</span>}
-                            {missing > 0 && <span>{missing} missing</span>}
+                            {missingItems.length > 0 && <span>{missingItems.length} missing</span>}
+                            {recipe.rating !== null && <span>{recipe.rating}/5</span>}
                             {sourceUrl && (
-                              <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-green-700 hover:text-green-800">
+                              <a
+                                href={sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={event => event.stopPropagation()}
+                                className="text-green-700 hover:text-green-800"
+                              >
                                 recipe
                               </a>
                             )}
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => onMarkMade(recipe, day, null)}
-                            className="flex-1 px-2 py-1 rounded-md bg-white/90 border border-white text-xs font-medium text-green-700 hover:border-green-300"
-                          >
-                            Made
-                          </button>
-                          <button
-                            onClick={() => onRemove(recipe.id, day)}
-                            className="px-2 py-1 rounded-md bg-white/80 text-xs text-gray-400 hover:text-red-500"
-                            title="Remove"
-                          >
-                            x
-                          </button>
-                        </div>
-                      </div>
+                      </button>
                     )
                   })}
 
@@ -172,6 +206,94 @@ export default function CalendarPanel({
           })}
         </div>
       </div>
+
+      {activeRecipe && (
+        <div className="fixed inset-0 z-40 bg-black/20 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
+          <div
+            className="w-full max-w-sm bg-white border border-gray-200 rounded-xl shadow-xl p-4 space-y-4"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{activeRecipe.day}</p>
+                <h3 className="text-sm font-semibold text-gray-900 mt-1">{activeRecipe.recipe.name}</h3>
+                <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
+                  {formatTime(activeRecipe.recipe) && <span>{formatTime(activeRecipe.recipe)}</span>}
+                  {activeRecipe.missingItems.length > 0 && <span>{activeRecipe.missingItems.length} missing</span>}
+                  {activeRecipe.recipe.rating !== null && <span>{activeRecipe.recipe.rating}/5</span>}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-gray-300 hover:text-gray-600 text-lg leading-none"
+              >
+                x
+              </button>
+            </div>
+
+            {activeRecipe.sourceUrl && (
+              <a
+                href={activeRecipe.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center text-sm text-green-700 hover:text-green-800 hover:underline underline-offset-2"
+              >
+                Original recipe
+              </a>
+            )}
+
+            {activeRecipe.missingItems.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Missing</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeRecipe.missingItems.map(item => (
+                    <span key={item} className="px-2 py-1 rounded-lg bg-red-50 border border-red-100 text-xs text-red-700">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Rate + mark made</p>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[1, 2, 3, 4, 5].map(rating => (
+                  <button
+                    key={rating}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void markMadeAndClose(rating)}
+                    className="px-0 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:border-green-300 hover:bg-green-50 disabled:opacity-40"
+                  >
+                    {rating}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void markMadeAndClose(null)}
+                className="flex-1 px-3 py-2 rounded-lg bg-green-500 text-white text-sm font-medium hover:bg-green-600 disabled:opacity-40"
+              >
+                {saving ? 'Saving...' : 'Made'}
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={removeAndClose}
+                className="px-3 py-2 rounded-lg border border-red-100 text-sm text-red-600 hover:bg-red-50 disabled:opacity-40"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">

@@ -51,6 +51,66 @@ app.use('*', cors({
 
 app.get('/health', (c) => c.json({ ok: true }))
 
+function serializePlannerState(row: {
+  week_plan?: unknown
+  history?: unknown
+  overrides?: unknown
+  planned?: unknown
+  recipe_ratings?: unknown
+  shopping_list?: unknown
+} | null | undefined) {
+  return {
+    weekPlan: row?.week_plan ?? {},
+    history: row?.history ?? [],
+    overrides: row?.overrides ?? [],
+    planned: row?.planned ?? [],
+    recipeRatings: row?.recipe_ratings ?? {},
+    shoppingList: row?.shopping_list ?? [],
+  }
+}
+
+app.get('/planner-state', async (c) => {
+  const uid = resolveUserId(c)
+  const { data, error } = await supabase
+    .from('planner_state')
+    .select('week_plan, history, overrides, planned, recipe_ratings, shopping_list')
+    .eq('user_id', uid)
+    .maybeSingle()
+
+  if (error) return c.json({ error: error.message }, 500)
+  return c.json(serializePlannerState(data))
+})
+
+app.patch('/planner-state', async (c) => {
+  const uid = resolveUserId(c)
+  const body = await c.req.json() as {
+    weekPlan?: unknown
+    history?: unknown
+    overrides?: unknown
+    planned?: unknown
+    recipeRatings?: unknown
+    shoppingList?: unknown
+  }
+
+  const { data, error } = await supabase
+    .from('planner_state')
+    .upsert({
+      user_id: uid,
+      week_plan: body.weekPlan ?? {},
+      history: body.history ?? [],
+      overrides: body.overrides ?? [],
+      planned: body.planned ?? [],
+      recipe_ratings: body.recipeRatings ?? {},
+      shopping_list: body.shoppingList ?? [],
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' })
+    .select('week_plan, history, overrides, planned, recipe_ratings, shopping_list')
+    .single()
+
+  if (error) return c.json({ error: error.message }, 500)
+  return c.json(serializePlannerState(data))
+})
+
 // Recipes
 app.get('/recipes', async (c) => {
   const uid = resolveUserId(c)
