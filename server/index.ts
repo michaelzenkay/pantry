@@ -16,25 +16,31 @@ function parseCsv(value: string | undefined): string[] {
   return (value ?? '').split(',').map(v => v.trim()).filter(Boolean)
 }
 
-function parseTelegramUserMap(value: string | undefined): Map<string, string> {
+function parseExternalUserMap(value: string | undefined): Map<string, string> {
   const entries = parseCsv(value)
   return new Map(entries.flatMap(entry => {
-    const [telegramId, userId] = entry.split(':').map(v => v.trim())
-    return telegramId && userId ? [[telegramId, userId] as const] : []
+    const [externalId, userId] = entry.split(':').map(v => v.trim())
+    return externalId && userId ? [[externalId, userId] as const] : []
   }))
 }
 
-const TELEGRAM_USER_ID_MAP = parseTelegramUserMap(process.env.TELEGRAM_USER_ID_MAP)
+const TELEGRAM_USER_ID_MAP = parseExternalUserMap(process.env.TELEGRAM_USER_ID_MAP)
+const DISCORD_USER_ID_MAP = parseExternalUserMap(process.env.DISCORD_USER_ID_MAP)
 const ALLOWED_USER_IDS = new Set([
   USER_ID,
   ...parseCsv(process.env.ALLOWED_USER_IDS),
   ...TELEGRAM_USER_ID_MAP.values(),
+  ...DISCORD_USER_ID_MAP.values(),
 ])
 
 function resolveUserId(c: { req: { header: (k: string) => string | undefined; query: (k: string) => string | undefined } }): string {
   const telegramUserId = c.req.header('x-telegram-user-id') ?? c.req.query('telegram_user_id')
-  const mappedUserId = telegramUserId ? TELEGRAM_USER_ID_MAP.get(telegramUserId) : undefined
-  if (mappedUserId && ALLOWED_USER_IDS.has(mappedUserId)) return mappedUserId
+  const mappedTelegramUserId = telegramUserId ? TELEGRAM_USER_ID_MAP.get(telegramUserId) : undefined
+  if (mappedTelegramUserId && ALLOWED_USER_IDS.has(mappedTelegramUserId)) return mappedTelegramUserId
+
+  const discordUserId = c.req.header('x-discord-user-id') ?? c.req.query('discord_user_id')
+  const mappedDiscordUserId = discordUserId ? DISCORD_USER_ID_MAP.get(discordUserId) : undefined
+  if (mappedDiscordUserId && ALLOWED_USER_IDS.has(mappedDiscordUserId)) return mappedDiscordUserId
 
   const id = c.req.header('x-user-id')
   return id && ALLOWED_USER_IDS.has(id) ? id : USER_ID
@@ -44,7 +50,7 @@ const app = new Hono()
 
 app.use('*', cors({
   origin: CORS_ORIGIN,
-  allowHeaders: ['Content-Type', 'x-user-id', 'x-telegram-user-id'],
+  allowHeaders: ['Content-Type', 'x-user-id', 'x-telegram-user-id', 'x-discord-user-id'],
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
 }))
 
