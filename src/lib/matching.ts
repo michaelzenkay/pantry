@@ -5,6 +5,11 @@ const LIGHT_TRIP_MAX = 3
 const ALWAYS_AVAILABLE = ['water', 'warm water', 'cold water', 'ice water', 'boiling water',
   'salt', 'black pepper', 'white pepper', 'pepper']
 
+// Compound substitutions: ALL listed ingredients together substitute for the key
+export const COMPOUND_SUBS: Record<string, { ingredients: string[]; similarity: number }[]> = {
+  'mirin': [{ ingredients: ['rice wine', 'sugar'], similarity: 0.9 }],
+}
+
 export const SYNONYMS: Record<string, [string, number][]> = {
   'chicken stock':    [['chicken broth', 0.95], ['broth', 0.9]],
   'bread flour':      [['all-purpose flour', 0.85], ['flour', 0.8]],
@@ -25,6 +30,64 @@ export const SYNONYMS: Record<string, [string, number][]> = {
   'miso paste':       [['white miso', 1.0], ['soybean paste', 1.0], ['miso', 1.0], ['doenjang', 0.9]],
 }
 
+// "gai lan (chinese broccoli)" → ["gai lan", "chinese broccoli"]
+const DESCRIPTORS = new Set([
+  'a', 'an', 'the', 'fresh', 'frozen', 'dried', 'dry', 'canned', 'can', 'jar',
+  'bottle', 'bag', 'box', 'package', 'pkg', 'medium', 'large', 'small', 'sized',
+  'size', 'whole', 'chopped', 'diced', 'sliced', 'minced', 'crushed', 'peeled',
+  'grated', 'shredded', 'cubed', 'ripe', 'raw', 'cooked', 'organic',
+])
+
+const SINGULARS: Record<string, string> = {
+  potatoes: 'potato',
+  tomatoes: 'tomato',
+  leaves: 'leaf',
+  loaves: 'loaf',
+  knives: 'knife',
+  chilies: 'chili',
+  chiles: 'chili',
+}
+
+const VARIETY_WORDS: Record<string, string[]> = {
+  potato: ['russet', 'yukon', 'gold', 'red'],
+  onion: ['yellow', 'white', 'red', 'sweet'],
+}
+
+function singularize(word: string): string {
+  if (SINGULARS[word]) return SINGULARS[word]
+  if (word.endsWith('ies') && word.length > 4) return `${word.slice(0, -3)}y`
+  if (word.endsWith('oes') && word.length > 4) return word.slice(0, -2)
+  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 3) return word.slice(0, -1)
+  return word
+}
+
+function normalizeTerm(name: string): string {
+  const words = name
+    .toLowerCase()
+    .replace(/['"]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(word => !/^\d+([./-]\d+)?$/.test(word))
+    .map(singularize)
+    .filter(word => !DESCRIPTORS.has(word))
+
+  const withoutVarieties = words.filter(word =>
+    !Object.entries(VARIETY_WORDS).some(([base, varieties]) => words.includes(base) && varieties.includes(word))
+  )
+  return withoutVarieties.join(' ')
+}
+
+function expandTerms(name: string): string[] {
+  const lower = name.toLowerCase()
+  const base = lower.replace(/\s*\([^)]*\)/g, '').trim()
+  const aliases = [...lower.matchAll(/\(([^)]+)\)/g)].map(m => m[1].trim())
+  return [base, ...aliases]
+    .flatMap(term => [term, normalizeTerm(term)])
+    .filter(s => s.length > 0)
+    .filter((term, index, all) => all.indexOf(term) === index)
+}
+
 export function findMatch(pantryNames: Set<string>, ingredient: string): IngredientResult {
   const ing = ingredient.toLowerCase()
 
@@ -32,8 +95,23 @@ export function findMatch(pantryNames: Set<string>, ingredient: string): Ingredi
   if (ing.startsWith('water')) return { name: ingredient, status: 'exact' }
   if (pantryNames.has(ing)) return { name: ingredient, status: 'exact' }
 
+  const ingTerms = expandTerms(ingredient)
   for (const p of pantryNames) {
-    if (p.includes(ing) || ing.includes(p)) return { name: ingredient, status: 'exact' }
+    const pantryTerms = expandTerms(p)
+    if (ingTerms.some(it => pantryTerms.some(pt => pt === it || pt.includes(it) || it.includes(pt))))
+      return { name: ingredient, status: 'exact' }
+  }
+
+  for (const { ingredients, similarity } of COMPOUND_SUBS[ing] ?? []) {
+    const allPresent = ingredients.every(sub => {
+      const subTerms = expandTerms(sub)
+      return [...pantryNames].some(p => {
+        const pts = expandTerms(p)
+        return subTerms.some(st => pts.some(pt => pt === st || pt.includes(st) || st.includes(pt)))
+      })
+    })
+    if (allPresent)
+      return { name: ingredient, status: 'substitute', substituteWith: ingredients.join(' + '), similarity }
   }
 
   for (const [canonical, subs] of Object.entries(SYNONYMS)) {
