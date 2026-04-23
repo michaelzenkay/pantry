@@ -1,14 +1,11 @@
-import type { CourseSlot, Day, MadeHistoryEntry, MealSlot, PantryItem, PlannedRecipe, RecipeWithStatus, WeekPlan } from '../types'
-import { COURSE_SLOTS, DAYS, MEAL_SLOTS, getSourceUrl } from '../types'
-import { DISH_TYPE_LABELS, getDishTypes } from '../lib/matching'
+import type { CourseSlot, Day, MadeHistoryEntry, MealSlot, PantryItem, RecipeWithStatus, WeekPlan } from '../types'
+import { DAYS, getSourceUrl } from '../types'
 
 interface Props {
   computed: RecipeWithStatus[]
   pantry: PantryItem[]
   weekPlan: WeekPlan
   history: MadeHistoryEntry[]
-  onMove: (recipeId: string, fromDay: Day, toDay: Day) => void
-  onUpdateSlot: (recipeId: string, day: Day, patch: Partial<Pick<PlannedRecipe, 'meal' | 'course'>>) => void
   onRemove: (recipeId: string, day: Day) => void
   onMarkMade: (recipe: RecipeWithStatus, day: Day, rating: number | null) => void
   onClearHistory: () => void
@@ -52,8 +49,6 @@ export default function CalendarPanel({
   pantry,
   weekPlan,
   history,
-  onMove,
-  onUpdateSlot,
   onRemove,
   onMarkMade,
   onClearHistory,
@@ -108,99 +103,47 @@ export default function CalendarPanel({
                 </div>
 
                 <div className="flex-1 p-2 space-y-2">
-                  {MEAL_SLOTS.map(meal => {
-                    const mealEntries = plannedEntries.filter(entry => entry.meal === meal)
+                  {plannedEntries.map(entry => {
+                    const recipe = recipeMap[entry.recipeId]
+                    if (!recipe) return null
+                    const missing = recipe.ingredientResults.filter(result => result.status === 'missing').length
+                    const sourceUrl = getSourceUrl(recipe.notes)
+
                     return (
-                      <div key={meal} className="space-y-1.5">
-                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{MEAL_LABELS[meal]}</p>
-                        {COURSE_SLOTS.map(course => {
-                          const courseEntries = mealEntries.filter(entry => entry.course === course)
-                          return (
-                            <div key={course} className="rounded-lg border border-dashed border-gray-100 p-1.5 space-y-1.5">
-                              <p className="text-[10px] font-semibold text-gray-300 uppercase tracking-wide">{COURSE_LABELS[course]}</p>
-                              {courseEntries.length === 0 ? (
-                                <div className="h-8 rounded bg-gray-50/60" />
-                              ) : courseEntries.map(entry => {
-                                const recipe = recipeMap[entry.recipeId]
-                                if (!recipe) return null
-                                const missing = recipe.ingredientResults.filter(result => result.status === 'missing').length
-                                const sourceUrl = getSourceUrl(recipe.notes)
-                                const dishTypes = getDishTypes(recipe)
+                      <div
+                        key={entry.recipeId}
+                        className={`rounded-lg border p-2 space-y-2 ${
+                          missing === 0 ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-semibold text-gray-800 leading-snug">{recipe.name}</p>
+                          <div className="flex flex-wrap gap-1.5 mt-1 text-[11px] text-gray-500">
+                            {formatTime(recipe) && <span>{formatTime(recipe)}</span>}
+                            {missing > 0 && <span>{missing} missing</span>}
+                            {sourceUrl && (
+                              <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-green-700 hover:text-green-800">
+                                recipe
+                              </a>
+                            )}
+                          </div>
+                        </div>
 
-                                return (
-                                  <div
-                                    key={entry.recipeId}
-                                    className={`rounded-lg border p-2 space-y-2 ${
-                                      missing === 0 ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'
-                                    }`}
-                                  >
-                                    <div>
-                                      <p className="text-xs font-semibold text-gray-800 leading-snug">{recipe.name}</p>
-                                      <div className="flex flex-wrap gap-1.5 mt-1 text-[11px] text-gray-500">
-                                        {formatTime(recipe) && <span>{formatTime(recipe)}</span>}
-                                        {missing > 0 && <span>{missing} missing</span>}
-                                        {dishTypes.slice(0, 2).map(dishType => (
-                                          <span key={dishType}>{DISH_TYPE_LABELS[dishType]}</span>
-                                        ))}
-                                        {sourceUrl && (
-                                          <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-green-700 hover:text-green-800">
-                                            recipe
-                                          </a>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-1">
-                                      <select
-                                        value={day}
-                                        onChange={event => onMove(recipe.id, day, event.target.value as Day)}
-                                        className="min-w-0 border border-white/80 rounded-md bg-white px-1.5 py-1 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-400"
-                                      >
-                                        {DAYS.map(option => <option key={option} value={option}>{option}</option>)}
-                                      </select>
-                                      <select
-                                        value={entry.meal}
-                                        onChange={event => onUpdateSlot(recipe.id, day, { meal: event.target.value as MealSlot })}
-                                        className="min-w-0 border border-white/80 rounded-md bg-white px-1.5 py-1 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-400"
-                                      >
-                                        {MEAL_SLOTS.map(option => <option key={option} value={option}>{MEAL_LABELS[option]}</option>)}
-                                      </select>
-                                      <select
-                                        value={entry.course}
-                                        onChange={event => onUpdateSlot(recipe.id, day, { course: event.target.value as CourseSlot })}
-                                        className="min-w-0 border border-white/80 rounded-md bg-white px-1.5 py-1 text-xs text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-400"
-                                      >
-                                        {COURSE_SLOTS.map(option => <option key={option} value={option}>{COURSE_LABELS[option]}</option>)}
-                                      </select>
-                                    </div>
-
-                                    <div className="flex items-center justify-between gap-1">
-                                      <div className="flex items-center gap-1">
-                                        {[1, 2, 3, 4, 5].map(rating => (
-                                          <button
-                                            key={rating}
-                                            onClick={() => onMarkMade(recipe, day, rating)}
-                                            className="w-5 h-5 rounded bg-white/90 border border-white text-[11px] font-medium text-gray-500 hover:border-green-300 hover:text-green-700"
-                                            title={`Made it, ${rating}/5`}
-                                          >
-                                            {rating}
-                                          </button>
-                                        ))}
-                                      </div>
-                                      <button
-                                        onClick={() => onRemove(recipe.id, day)}
-                                        className="px-1.5 py-1 rounded-md bg-white/80 text-xs text-gray-400 hover:text-red-500"
-                                        title="Remove"
-                                      >
-                                        x
-                                      </button>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )
-                        })}
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => onMarkMade(recipe, day, null)}
+                            className="flex-1 px-2 py-1 rounded-md bg-white/90 border border-white text-xs font-medium text-green-700 hover:border-green-300"
+                          >
+                            Made
+                          </button>
+                          <button
+                            onClick={() => onRemove(recipe.id, day)}
+                            className="px-2 py-1 rounded-md bg-white/80 text-xs text-gray-400 hover:text-red-500"
+                            title="Remove"
+                          >
+                            x
+                          </button>
+                        </div>
                       </div>
                     )
                   })}

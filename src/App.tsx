@@ -4,6 +4,7 @@ import RecipeTable from './components/RecipeTable'
 import RecipeFilters, { DEFAULT_FILTERS } from './components/RecipeFilters'
 import PantryPanel from './components/PantryPanel'
 import CalendarPanel from './components/CalendarPanel'
+import WeekPlanner from './components/WeekPlanner'
 import type { DishType, MadeHistoryEntry, PlannedRecipe, Recipe, PantryItem, Day, WeekPlan, RecipeWithStatus } from './types'
 import { DAYS, getSource } from './types'
 import { computeRecipes, getDishTypes, getRecipeProteins } from './lib/matching'
@@ -174,34 +175,6 @@ export default function App() {
     })
   }
 
-  function moveInWeek(recipeId: string, fromDay: Day, toDay: Day) {
-    if (fromDay === toDay) return
-    setWeekPlan(prev => {
-      const moving = (prev[fromDay] ?? []).find(entry => entry.recipeId === recipeId)
-      if (!moving) return prev
-      const fromList = (prev[fromDay] ?? []).filter(entry => entry.recipeId !== recipeId)
-      const toList = prev[toDay] ?? []
-      const next = {
-        ...prev,
-        [fromDay]: fromList,
-        [toDay]: toList.some(entry => entry.recipeId === recipeId) ? toList : [...toList, moving],
-      }
-      saveWeekPlan(next)
-      return next
-    })
-  }
-
-  function updateWeekSlot(recipeId: string, day: Day, patch: Partial<Pick<PlannedRecipe, 'meal' | 'course'>>) {
-    setWeekPlan(prev => {
-      const next = {
-        ...prev,
-        [day]: (prev[day] ?? []).map(entry => entry.recipeId === recipeId ? { ...entry, ...patch } : entry),
-      }
-      saveWeekPlan(next)
-      return next
-    })
-  }
-
   async function markMade(recipe: RecipeWithStatus, day: Day, rating: number | null) {
     if (rating !== null) await updateRecipe(recipe.id, { rating })
     const plannedEntry = (weekPlan[day] ?? []).find(entry => entry.recipeId === recipe.id)
@@ -288,31 +261,39 @@ export default function App() {
             </p>
           </div>
         ) : tab === 'recipes' ? (
-          <div className="flex flex-col lg:flex-row gap-6 items-start">
-            <RecipeFilters
-              filters={filters}
-              onChange={setFilters}
-              availableCuisines={availableCuisines}
-              availableProteins={availableProteins}
-              availableSources={availableSources}
-              availableDishTypes={availableDishTypes}
-              counts={statusCounts}
-            />
-            <div className="order-3 lg:order-2 flex-1 min-w-0 w-full">
-              <RecipeTable
-                computed={computed}
+          <div className="space-y-6">
+            {weekCount > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">This Week</h2>
+                <WeekPlanner computed={computed} weekPlan={weekPlan} onRemove={removeFromWeek} />
+              </div>
+            )}
+            <div className="flex flex-col lg:flex-row gap-6 items-start">
+              <RecipeFilters
                 filters={filters}
-                weekPlan={weekPlan}
-                overrides={overrides}
-                planned={planned}
-                onAddToWeek={addToWeek}
-                onMarkHave={markHave}
-                onMarkPlanned={markPlanned}
-                onUnmark={unmark}
-                computeImpact={computeImpact}
-                onUpdateRecipe={updateRecipe}
-                onDeleteRecipe={deleteRecipe}
+                onChange={setFilters}
+                availableCuisines={availableCuisines}
+                availableProteins={availableProteins}
+                availableSources={availableSources}
+                availableDishTypes={availableDishTypes}
+                counts={statusCounts}
               />
+              <div className="order-3 lg:order-2 flex-1 min-w-0 w-full">
+                <RecipeTable
+                  computed={computed}
+                  filters={filters}
+                  weekPlan={weekPlan}
+                  overrides={overrides}
+                  planned={planned}
+                  onAddToWeek={addToWeek}
+                  onMarkHave={markHave}
+                  onMarkPlanned={markPlanned}
+                  onUnmark={unmark}
+                  computeImpact={computeImpact}
+                  onUpdateRecipe={updateRecipe}
+                  onDeleteRecipe={deleteRecipe}
+                />
+              </div>
             </div>
           </div>
         ) : tab === 'calendar' ? (
@@ -321,8 +302,6 @@ export default function App() {
             pantry={pantry}
             weekPlan={weekPlan}
             history={history}
-            onMove={moveInWeek}
-            onUpdateSlot={updateWeekSlot}
             onRemove={removeFromWeek}
             onMarkMade={markMade}
             onClearHistory={clearHistory}
